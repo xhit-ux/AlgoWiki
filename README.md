@@ -10,10 +10,22 @@
 - 项目说明书：`docs/项目说明书.md`
 - 详细使用手册：`docs/详细使用手册.md`
 - 维护手册：`docs/维护手册.md`
+- 远程部署指南：`docs/远程部署指南.md`
 - GitHub 发布清单：`docs/GitHub发布清单.md`
 - 文档索引：`docs/README.md`
 - 贡献说明：`CONTRIBUTING.md`
 - 安全策略：`SECURITY.md`
+
+## 默认内容来源
+
+- `backend/data/xcpc_readme_snapshot.md`
+  - 这是仓库内随代码一起版本化的 XCPC 内容快照，来源于 `https://github.com/NullResot/xcpc`
+- `frontend/public/wiki-assets/`
+  - 这是与 XCPC 快照配套的静态图片资源
+- `python manage.py seed_initial_data`
+  - 负责初始化超管、公告、友链、赛事公告、赛程、默认技巧与基础站点内容
+- `python manage.py seed_xcpc_reference_content`
+  - 负责把 XCPC 快照同步成可浏览、可修订的 Wiki 文章
 
 ## 已实现的核心功能
 
@@ -208,58 +220,71 @@ Expand-Archive -LiteralPath "<path-to-your-assets.zip>" -DestinationPath fronten
 - 请求日志、安全日志与慢请求监控
 - 容器启动前自动等待数据库并执行 Django `check`
 
-推荐步骤：
+如果你是“本地电脑 + VS Code Remote-SSH + 国内 ECS”的场景，推荐按《`docs/远程部署指南.md`》执行。当前仓库已经补齐了以下远程部署文件：
+
+- 生产环境变量示例：`deploy/env.production.example`
+- 私有验证环境示例：`deploy/env.private-validation.example`
+- Docker Compose：`docker-compose.server.yml`
+- Docker 入口脚本：`deploy/docker-entrypoint.sh`
+- 服务器基线脚本：`deploy/server-bootstrap.sh`
+- 服务器启动脚本：`deploy/server-compose-up.sh`
+- 服务器验收脚本：`deploy/server-verify.sh`
+- 本地镜像导出脚本：`scripts/build_server_image.ps1`
+- 本地源码打包脚本：`scripts/package_server_source.ps1`
+
+推荐顺序：
+
+1. 用 `Remote-SSH: Open Folder on Host...` 打开 `/srv/algowiki`
+2. 在服务器执行 `deploy/server-bootstrap.sh` 安装 Docker、Compose、swap
+3. 在本地执行 `scripts/build_server_image.ps1` 和 `scripts/package_server_source.ps1`
+4. 把源码包和镜像包上传到服务器
+5. RDS 未准备好前，使用 `deploy/env.private-validation.example` 和 `--profile local-db` 做私有验证
+6. RDS 就绪后，改用 `deploy/env.production.example`，不再启用 `local-db` profile
+7. 备案通过后，再接 Nginx、域名和 HTTPS
+
+本地构建镜像：
 
 ```powershell
-cd <project-root>\frontend
-npm install
-npm run build
-
 cd <project-root>
-venv\Scripts\python.exe backend\manage.py collectstatic --noinput
-venv\Scripts\python.exe backend\manage.py check --deploy
+powershell -ExecutionPolicy Bypass -File .\scripts\build_server_image.ps1 -Tag 20260312
+powershell -ExecutionPolicy Bypass -File .\scripts\package_server_source.ps1
 ```
 
-Linux 服务器示例：
+服务器基线：
 
 ```bash
 cd /srv/algowiki
-source venv/bin/activate
-python backend/manage.py migrate --noinput
-python backend/manage.py collectstatic --noinput
-gunicorn --chdir backend config.wsgi:application --bind 0.0.0.0:8001 --workers 3 --timeout 120
+chmod +x deploy/server-bootstrap.sh
+SWAP_MB=4096 CONFIGURE_UFW=1 ./deploy/server-bootstrap.sh
 ```
 
-配套模板：
-
-- 生产环境变量示例：`deploy/env.production.example`
-- Docker Compose：`docker-compose.server.yml`
-- Docker 入口脚本：`deploy/docker-entrypoint.sh`
-- `systemd` 示例：`deploy/gunicorn.service.example`
-- `nginx` 示例：`deploy/nginx.algowiki.conf`
-- `logrotate` 示例：`deploy/logrotate.algowiki.example`
-
-容器化部署示例：
+私有验证部署：
 
 ```bash
-cp deploy/env.production.example deploy/.env.production
-docker compose --env-file deploy/.env.production -f docker-compose.server.yml up -d --build
+cd /srv/algowiki
+cp deploy/env.private-validation.example deploy/.env.private-validation
+chmod +x deploy/server-compose-up.sh
+./deploy/server-compose-up.sh --env-file deploy/.env.private-validation --profile local-db --image-archive /root/algowiki-web-20260312.tar
 ```
 
 说明：
 
-- `docker-compose.server.yml` 会同时启动 MySQL 8 和 Django/Gunicorn
-- 前端会在镜像构建阶段自动执行 `npm run build`
+- `docker-compose.server.yml` 中的 `db` 服务仅在 `--profile local-db` 时启动
+- `web` 服务支持 `APP_IMAGE=<prebuilt-image>`，适合本地构建后上传到服务器
+- `deploy/server-compose-up.sh` 默认使用 `docker compose up -d --no-build`
+- 如果服务器只有 `docker-compose` v1，请优先使用 `deploy/server-compose-up.sh`/`deploy/server-verify.sh`，不要直接手写 `docker-compose up`，否则 `APP_IMAGE` 等变量可能不会按预期生效
 - 容器启动时会自动等待数据库、执行 `check`、`migrate` 和 `collectstatic`
-- 若直接暴露 `APP_PORT` 到公网，先把 `DJANGO_ALLOWED_HOSTS`、`DJANGO_CSRF_TRUSTED_ORIGINS` 改成真实域名
-- 若服务器前面还有 nginx/云负载均衡，再保留 `DJANGO_USE_X_FORWARDED_HOST=1` 和 `DJANGO_SECURE_PROXY_SSL_HEADER`
+- `APP_BIND` 默认是 `127.0.0.1`，公网访问应通过 Nginx 转发，而不是直接暴露 8001
+- 正式环境请使用 `deploy/env.production.example`，并将 `DB_HOST` 指向 RDS 私网地址
+- 备案通过前，只建议做私有验证，不建议正式开放公网站点
 
 公网访问建议：
 
-- 域名或公网 IP 写入 `DJANGO_ALLOWED_HOSTS`
+- 域名写入 `DJANGO_ALLOWED_HOSTS`
 - HTTPS 域名写入 `DJANGO_CSRF_TRUSTED_ORIGINS`
 - 若走反向代理，启用 `DJANGO_SECURE_PROXY_SSL_HEADER`
-- MySQL 使用 `utf8mb4`，必要时配置 TLS（`DB_SSL_CA` 等）
+- MySQL 使用 `utf8mb4`
+- RDS 可按需开启 TLS（`DB_SSL_CA` 等）
 
 ## 前端启动说明
 

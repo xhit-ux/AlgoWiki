@@ -1,4 +1,7 @@
-FROM node:22-bookworm-slim AS frontend-build
+ARG FRONTEND_BASE_IMAGE=node:22-bookworm-slim
+ARG BACKEND_BASE_IMAGE=python:3.12-bookworm
+
+FROM ${FRONTEND_BASE_IMAGE} AS frontend-build
 
 WORKDIR /app/frontend
 
@@ -8,7 +11,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.12-bookworm
+FROM ${BACKEND_BASE_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

@@ -5,9 +5,27 @@ from pathlib import Path
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
-from wiki.models import Announcement, Article, Category, ExtensionPage, User
+from wiki.models import (
+    Announcement,
+    Article,
+    Category,
+    CompetitionNotice,
+    CompetitionScheduleEntry,
+    ExtensionPage,
+    FriendlyLink,
+    TeamMember,
+    TrickEntry,
+    User,
+)
 from wiki.security import record_password_history
+from wiki.seed_content.default_site_content import (
+    DEFAULT_TEAM_MEMBER,
+    DEFAULT_TRICK_DEFS,
+    FRIENDLY_LINK_DEFS,
+    build_default_competition_content,
+)
 
 LEGACY_CATEGORY_SLUGS = [
     "language-basics",
@@ -225,6 +243,11 @@ class Command(BaseCommand):
             },
         )
 
+        self._seed_default_team_member()
+        self._seed_friendly_links(superadmin)
+        self._seed_competition_content(superadmin)
+        self._seed_default_tricks(superadmin)
+
         if options["content_file"] and not options["skip_markdown_section_import"]:
             self._import_markdown_sections(
                 content_file=options["content_file"],
@@ -253,6 +276,75 @@ class Command(BaseCommand):
                         f"- {account['username']} ({account['role']}): {account['password']}"
                     )
                 )
+
+    def _seed_default_team_member(self) -> None:
+        TeamMember.objects.update_or_create(
+            display_id=DEFAULT_TEAM_MEMBER["display_id"],
+            defaults={
+                "avatar_url": DEFAULT_TEAM_MEMBER["avatar_url"],
+                "profile_url": DEFAULT_TEAM_MEMBER["profile_url"],
+                "is_active": True,
+                "sort_order": DEFAULT_TEAM_MEMBER["sort_order"],
+            },
+        )
+
+    def _seed_friendly_links(self, operator: User) -> None:
+        for item in FRIENDLY_LINK_DEFS:
+            FriendlyLink.objects.update_or_create(
+                name=item["name"],
+                defaults={
+                    "description": item["description"],
+                    "url": item["url"],
+                    "created_by": operator,
+                    "is_enabled": True,
+                    "order": item["order"],
+                },
+            )
+
+    def _seed_competition_content(self, operator: User) -> None:
+        notice_defs, schedule_defs = build_default_competition_content()
+        notices = {}
+
+        for item in notice_defs:
+            notice, _ = CompetitionNotice.objects.update_or_create(
+                title=item["title"],
+                defaults={
+                    "content_md": item["content_md"],
+                    "series": item["series"],
+                    "year": item["year"],
+                    "stage": item["stage"],
+                    "created_by": operator,
+                    "updated_by": operator,
+                    "is_visible": True,
+                    "published_at": timezone.now(),
+                },
+            )
+            notices[item["title"]] = notice
+
+        for item in schedule_defs:
+            CompetitionScheduleEntry.objects.update_or_create(
+                event_date=item["event_date"],
+                competition_type=item["competition_type"],
+                defaults={
+                    "competition_time_range": item["competition_time_range"],
+                    "location": item["location"],
+                    "qq_group": item["qq_group"],
+                    "announcement": notices.get(item["notice_title"]),
+                    "created_by": operator,
+                    "updated_by": operator,
+                },
+            )
+
+    def _seed_default_tricks(self, operator: User) -> None:
+        for item in DEFAULT_TRICK_DEFS:
+            TrickEntry.objects.update_or_create(
+                title=item["title"],
+                defaults={
+                    "content_md": item["content_md"],
+                    "author": operator,
+                    "status": TrickEntry.Status.APPROVED,
+                },
+            )
 
     def _load_content(self, content_file: str) -> str:
         default_content = (

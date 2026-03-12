@@ -15,7 +15,10 @@ from .models import (
     Article,
     ArticleComment,
     Category,
+    CompetitionNotice,
+    CompetitionScheduleEntry,
     ContributionEvent,
+    FriendlyLink,
     IssueTicket,
     Question,
     RevisionProposal,
@@ -466,6 +469,54 @@ class SeedCommandTests(APITestCase):
         self.assertFalse(User.objects.filter(username="demo_normal").exists())
         self.assertFalse(User.objects.filter(username="demo_school").exists())
         self.assertFalse(User.objects.filter(username="demo_admin").exists())
+
+    def test_seed_initial_data_seeds_default_site_content(self):
+        call_command(
+            "seed_initial_data",
+            superadmin_username="seed_site_admin",
+            superadmin_password="InitPass123!",
+            superadmin_email="seed-site@example.com",
+            skip_demo_users=True,
+        )
+
+        self.assertTrue(TeamMember.objects.filter(display_id="Null_Resot", is_active=True).exists())
+        self.assertGreaterEqual(FriendlyLink.objects.filter(is_enabled=True).count(), 6)
+        self.assertGreaterEqual(CompetitionNotice.objects.filter(is_visible=True).count(), 4)
+        self.assertGreaterEqual(CompetitionScheduleEntry.objects.count(), 4)
+        self.assertGreaterEqual(
+            TrickEntry.objects.filter(status=TrickEntry.Status.APPROVED).count(),
+            2,
+        )
+
+    def test_seed_xcpc_reference_content_syncs_bundled_snapshot_and_prunes_stale_articles(self):
+        call_command(
+            "seed_initial_data",
+            superadmin_username="seed_xcpc_admin",
+            superadmin_password="InitPass123!",
+            superadmin_email="seed-xcpc@example.com",
+            skip_demo_users=True,
+        )
+        author = User.objects.get(username="seed_xcpc_admin")
+        stale_article = Article.objects.create(
+            title="obsolete xcpc article",
+            slug="xcpc-stale-article",
+            summary="old",
+            content_md="old",
+            category=Category.objects.get(slug="xcpc-preface"),
+            author=author,
+            last_editor=author,
+            status=Article.Status.PUBLISHED,
+        )
+
+        call_command("seed_xcpc_reference_content", author="seed_xcpc_admin")
+
+        self.assertTrue(Article.objects.filter(title="阅前须知").exists())
+        self.assertTrue(Article.objects.filter(title="比赛介绍｜XCPC").exists())
+        self.assertTrue(Article.objects.filter(title="关键网站｜GitHub项目").exists())
+        outline = Article.objects.get(title="文章大纲")
+        self.assertIn("/wiki-assets/1.png", outline.content_md)
+        stale_article.refresh_from_db()
+        self.assertEqual(stale_article.status, Article.Status.HIDDEN)
 
 
 class RolePermissionTests(APITestCase):

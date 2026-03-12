@@ -9,7 +9,7 @@ param(
     [string]$DbUser = "",
     [string]$DbPassword = "",
     [string]$SuperadminPassword = "",
-    [string]$ContentFile = "backend\\data\\attachment2.md",
+    [string]$ContentFile = "backend\\data\\xcpc_readme_snapshot.md",
     [switch]$Rebuild,
     [string]$SourceSqlitePath = "",
     [string]$FixturePath = "",

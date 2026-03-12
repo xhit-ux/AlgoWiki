@@ -16,6 +16,7 @@ storage/*.sqlite3-journal
 storage/*.pid
 storage/*.pdf
 storage/logs/
+storage/deploy/
 backend/*.sqlite3
 backend/*.sqlite3-journal
 backend/staticfiles/*
@@ -23,6 +24,7 @@ backend/staticfiles/*
 backend/media/*
 !backend/media/.gitkeep
 backend/.env
+deploy/.env*
 
 # Frontend
 frontend/node_modules/

@@ -1,19 +1,24 @@
-﻿from django.core.management.base import BaseCommand, CommandError
+from datetime import timedelta
+
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
 from wiki.models import Article, Category, User
 from wiki.seed_content.xcpc_articles import ARTICLE_DEFS, CATEGORY_DEFS, LEGACY_CATEGORY_SLUGS
 
 
 class Command(BaseCommand):
-    help = "Seed structured XCPC onboarding content referenced from NullResot/xcpc README and xcpc-wiki."
+    help = "Seed XCPC onboarding content from the bundled NullResot/xcpc README snapshot."
 
     def add_arguments(self, parser):
         parser.add_argument("--author", type=str, default="superadmin", help="Author username used for seeded content")
+        parser.set_defaults(prune=True)
         parser.add_argument(
-            "--prune",
-            action="store_true",
-            help="Hide legacy xcpc-* articles that are not included in the current content pack",
+            "--keep-stale",
+            action="store_false",
+            dest="prune",
+            help="Keep legacy xcpc-* articles that are not included in the current content pack",
         )
 
     @transaction.atomic
@@ -67,8 +72,9 @@ class Command(BaseCommand):
     def _sync_articles(self, categories, author: User):
         created_count = 0
         updated_count = 0
+        base_time = timezone.now()
 
-        for item in ARTICLE_DEFS:
+        for index, item in enumerate(ARTICLE_DEFS):
             defaults = {
                 "title": item["title"],
                 "summary": item["summary"],
@@ -84,6 +90,8 @@ class Command(BaseCommand):
                 created_count += 1
             else:
                 updated_count += 1
+
+            Article.objects.filter(pk=article.pk).update(updated_at=base_time - timedelta(seconds=index))
             self.stdout.write(f"Synced article: {article.title}")
 
         return created_count, updated_count
