@@ -1,4 +1,6 @@
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
+
+import { useThemeStore } from "../stores/theme";
 
 const stops = [
   { p: 0.0, accent: "#7C5CFF", bg1: "hsla(270,95%,75%,.14)", bg2: "hsla(210,95%,72%,.12)", bg3: "hsla(300,80%,75%,.10)" },
@@ -102,19 +104,33 @@ function pickTheme(progress) {
 }
 
 export function useScrollGradientTheme() {
+  const theme = useThemeStore();
   let rafId = 0;
+  const root = typeof document !== "undefined" ? document.documentElement : null;
+
+  const clearInlineTheme = () => {
+    if (!root) return;
+    root.style.removeProperty("--accent");
+    root.style.removeProperty("--bg-1");
+    root.style.removeProperty("--bg-2");
+    root.style.removeProperty("--bg-3");
+  };
 
   const update = () => {
+    if (!root) return;
     rafId = 0;
+    if (theme.currentTheme !== "modern") {
+      clearInlineTheme();
+      return;
+    }
     const max = document.body.scrollHeight - window.innerHeight;
     const progress = max > 0 ? window.scrollY / max : 0;
-    const theme = pickTheme(progress);
-    const root = document.documentElement;
+    const currentTheme = pickTheme(progress);
 
-    root.style.setProperty("--accent", theme.accent);
-    root.style.setProperty("--bg-1", theme.bg1);
-    root.style.setProperty("--bg-2", theme.bg2);
-    root.style.setProperty("--bg-3", theme.bg3);
+    root.style.setProperty("--accent", currentTheme.accent);
+    root.style.setProperty("--bg-1", currentTheme.bg1);
+    root.style.setProperty("--bg-2", currentTheme.bg2);
+    root.style.setProperty("--bg-3", currentTheme.bg3);
   };
 
   const onScroll = () => {
@@ -127,10 +143,22 @@ export function useScrollGradientTheme() {
     window.addEventListener("scroll", onScroll, { passive: true });
   });
 
+  watch(
+    () => theme.currentTheme,
+    () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      update();
+    }
+  );
+
   onBeforeUnmount(() => {
     window.removeEventListener("scroll", onScroll);
     if (rafId) {
       window.cancelAnimationFrame(rafId);
     }
+    clearInlineTheme();
   });
 }

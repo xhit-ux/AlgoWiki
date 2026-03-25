@@ -1,173 +1,272 @@
 ﻿<template>
-  <section class="qa-layout">
-    <aside class="qa-sidebar">
-      <div class="qa-title-row">
-        <h2>问答</h2>
-        <button class="btn" @click="loadQuestions()">刷新</button>
-      </div>
-
-      <div class="question-filters">
-        <select class="select" v-model="filters.scope" @change="loadQuestions()">
-          <option value="all">全部问题</option>
-          <option value="mine" :disabled="!auth.isAuthenticated">我的问题</option>
-        </select>
-        <input class="input" v-model="filters.search" placeholder="搜索问题" @keyup.enter="loadQuestions()" />
-        <select class="select" v-model="filters.status" @change="loadQuestions()">
-          <option value="">全部状态</option>
-          <option value="pending">pending</option>
-          <option value="open">open</option>
-          <option value="closed">closed</option>
-        </select>
-        <select class="select" v-model="filters.order" @change="loadQuestions()">
-          <option value="latest">按最近活跃</option>
-          <option value="answers">按回答数</option>
-          <option value="created_newest">按发布时间（新）</option>
-          <option value="created_oldest">按发布时间（旧）</option>
-          <option value="oldest">按最早活跃</option>
-        </select>
-        <button class="btn" @click="loadQuestions()">筛选</button>
-        <button class="btn" @click="resetQuestionFilters()">重置</button>
-      </div>
-
-      <p class="meta">问题总数：{{ questionPagination.count }}</p>
-
-      <article
-        class="question-item"
-        v-for="item in questions"
-        :key="item.id"
-        :class="{ active: selectedQuestion?.id === item.id }"
-        @click="selectQuestion(item)"
-      >
-        <h3>{{ item.title }}</h3>
-        <div class="meta">
-          {{ item.author.username }} · {{ item.answers_count }} 回答 · {{ formatQuestionStatus(item.status) }}
-        </div>
-      </article>
-      <button v-if="questionPagination.next" class="btn btn-more" @click="loadMoreQuestions">
-        {{ questionPagination.loadingMore ? "加载中..." : "加载更多问题" }}
+  <section class="qa-shell">
+    <aside class="qa-sidebar card">
+      <button class="btn btn-accent qa-primary-btn" type="button" @click="toggleAskPanel">
+        {{ showAskPanel ? "收起提问面板" : "我要提问" }}
       </button>
-      <p class="meta" v-if="!questions.length">暂无问题。</p>
 
-      <section v-if="auth.isAuthenticated" class="create-question">
-        <h3>我要提问</h3>
+      <section class="qa-sidebar-block">
+        <p class="qa-sidebar-label">浏览方式</p>
+        <button
+          v-for="item in scopeOptions"
+          :key="item.value"
+          type="button"
+          class="qa-sidebar-link"
+          :class="{ 'qa-sidebar-link--active': filters.scope === item.value }"
+          :disabled="item.authOnly && !auth.isAuthenticated"
+          @click="switchScope(item.value)"
+        >
+          <span>{{ item.label }}</span>
+          <small>{{ item.hint }}</small>
+        </button>
+      </section>
+
+      <section class="qa-sidebar-block">
+        <p class="qa-sidebar-label">状态筛选</p>
+        <div class="qa-chip-row">
+          <button
+            v-for="item in statusOptions"
+            :key="item.value || 'all'"
+            type="button"
+            class="qa-chip"
+            :class="{ 'qa-chip--active': filters.status === item.value }"
+            @click="setStatusFilter(item.value)"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+      </section>
+
+      <section class="qa-sidebar-block">
+        <p class="qa-sidebar-label">检索与分类</p>
+        <input class="input" v-model="filters.search" placeholder="搜索标题或正文" @keyup.enter="loadQuestions()" />
+        <select class="select" v-model="filters.category" @change="loadQuestions()">
+          <option value="">全部分类</option>
+          <option v-for="item in categoryFilterOptions" :key="String(item.id)" :value="String(item.id)">
+            {{ item.name }}
+          </option>
+        </select>
+      </section>
+
+      <section class="qa-sidebar-block">
+        <p class="qa-sidebar-label">当前结果</p>
+        <p class="meta qa-side-meta">{{ scopeSummary }}</p>
+        <div class="qa-side-actions">
+          <button class="btn" type="button" @click="loadQuestions()">刷新</button>
+          <button class="btn" type="button" @click="resetQuestionFilters">重置</button>
+        </div>
+      </section>
+
+      <section v-if="auth.isAuthenticated && showAskPanel" class="qa-compose">
+        <h3>发布新问题</h3>
+        <select class="select" v-model="questionForm.category">
+          <option value="">选择分类</option>
+          <option v-for="item in categories" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
+        </select>
         <input class="input" v-model="questionForm.title" placeholder="问题标题" />
         <ImageUploadHelper label="上传图片并插入 Markdown" @uploaded="onQuestionImageUploaded" />
         <textarea class="textarea" v-model="questionForm.content_md" placeholder="Markdown 问题描述"></textarea>
-        <div class="answer-actions">
-          <button class="btn" @click="restoreQuestionDraft">恢复草稿</button>
-          <button class="btn" @click="clearQuestionDraft">清空草稿</button>
+        <div class="qa-compose-actions">
+          <button class="btn" type="button" @click="restoreQuestionDraft">恢复草稿</button>
+          <button class="btn" type="button" @click="clearQuestionDraft">清空草稿</button>
         </div>
-        <button class="btn btn-accent" @click="createQuestion">提交问题</button>
+        <button class="btn btn-accent" type="button" @click="createQuestion">提交问题</button>
       </section>
-      <p v-else class="meta">登录后可提问与回答。</p>
+
+      <p v-else-if="!auth.isAuthenticated" class="meta qa-login-tip">登录后可提问、回答和保存草稿。</p>
     </aside>
 
-    <article class="qa-main">
-      <article class="qa-question-card card" v-for="item in questions" :key="`qa-main-${item.id}`">
-        <header class="qa-main-header qa-expand-head" @click="toggleQuestion(item)">
-          <div>
-            <h1 class="qa-question-title">{{ item.title }}</h1>
-            <div class="meta">
-              {{ item.author.username }} · {{ formatQuestionStatus(item.status) }} · {{ item.answers_count }} 回答
-            </div>
+    <main class="qa-main">
+      <header class="qa-header card">
+        <div class="qa-header-copy">
+          <p class="qa-kicker">Discussion Board</p>
+          <h1>{{ boardTitle }}</h1>
+          <p class="meta">{{ boardDescription }}</p>
+        </div>
+        <div class="qa-header-tools">
+          <div class="qa-order-group">
+            <button
+              v-for="item in orderOptions"
+              :key="item.value"
+              type="button"
+              class="qa-order-btn"
+              :class="{ 'qa-order-btn--active': filters.order === item.value }"
+              @click="setOrder(item.value)"
+            >
+              {{ item.label }}
+            </button>
           </div>
-          <span class="pill">{{ selectedQuestion?.id === item.id ? "收起" : "展开" }}</span>
-        </header>
+          <button class="btn" type="button" @click="loadQuestions()">刷新列表</button>
+        </div>
+      </header>
 
-        <section v-if="selectedQuestion?.id === item.id" class="qa-question-body">
-          <section class="markdown" v-html="renderMarkdown(item.content_md || '')"></section>
+      <div v-if="usingDemoQuestions" class="qa-demo-banner">
+        当前列表是开发环境演示数据，用于验收问答区布局，不会写入正式站点。
+      </div>
 
-          <div class="qa-actions" v-if="canToggleStatus">
-            <button class="btn" @click="startEditQuestion" v-if="canEditQuestion && !questionEdit.editing">编辑问题</button>
-            <button v-if="selectedQuestion.status === 'open'" class="btn" @click="closeQuestion">关闭问题</button>
-            <button v-else-if="selectedQuestion.status === 'closed'" class="btn" @click="reopenQuestion">重开问题</button>
-            <button class="btn" @click="removeQuestion">删除问题</button>
-          </div>
-          <section class="answer-form" v-if="questionEdit.editing">
-            <h3>编辑问题</h3>
-            <input class="input" v-model="questionEdit.title" placeholder="问题标题" />
-            <ImageUploadHelper label="上传图片并插入 Markdown" @uploaded="onQuestionEditImageUploaded" />
-            <textarea class="textarea" v-model="questionEdit.content_md" placeholder="Markdown 问题描述"></textarea>
-            <div class="answer-actions">
-              <button class="btn btn-accent" @click="saveEditedQuestion">保存问题</button>
-              <button class="btn" @click="cancelEditQuestion">取消</button>
+      <section class="qa-feed">
+        <article
+          v-for="item in displayQuestions"
+          :key="String(item.id)"
+          class="qa-thread card"
+          :class="{ 'qa-thread--active': selectedQuestion?.id === item.id }"
+        >
+          <button type="button" class="qa-thread-summary" @click="toggleQuestion(item)">
+            <div class="qa-thread-copy">
+              <div class="qa-thread-top">
+                <span class="qa-status" :class="`qa-status--${item.status || 'unknown'}`">
+                  {{ formatQuestionStatus(item.status) }}
+                </span>
+                <span class="qa-thread-time">{{ formatTime(item.updated_at || item.created_at) }}</span>
+              </div>
+
+              <h2>{{ item.title }}</h2>
+              <p class="qa-thread-preview">{{ getQuestionPreview(item).text }}</p>
+
+              <div class="qa-tag-row">
+                <span class="qa-tag">{{ item.category_name || "未分类" }}</span>
+                <span class="qa-tag" v-if="getQuestionPreview(item).sourceLabel">{{ getQuestionPreview(item).sourceLabel }}</span>
+                <span class="qa-tag" v-if="isDemoQuestion(item)">演示数据</span>
+              </div>
+
+              <div class="qa-thread-meta">
+                <span>{{ item.author.username }}</span>
+                <span>{{ item.answers_count }} 条回答</span>
+                <span v-if="getQuestionPreview(item).isAccepted">已采纳回答</span>
+              </div>
             </div>
-          </section>
 
-          <section class="answers">
-            <div class="answers-head">
-              <h3>回答</h3>
-              <div class="answers-tools">
-                <span class="meta">共 {{ answerPagination.count }} 条</span>
-                <select class="select" v-model="answerOrder" @change="reloadAnswersOrder">
+            <div class="qa-thread-side">
+              <strong>{{ item.answers_count }}</strong>
+              <span>回答</span>
+              <span v-if="getQuestionPreview(item).isAccepted" class="qa-thread-badge">已采纳</span>
+            </div>
+          </button>
+
+          <section v-if="selectedQuestion?.id === item.id" class="qa-thread-detail">
+            <div v-if="isSelectedDemoQuestion" class="qa-demo-inline">
+              这是用于本地验收的演示讨论串，下面的回答区是只读样本。
+            </div>
+
+            <section class="qa-question-panel">
+              <div class="qa-question-head">
+                <div>
+                  <h3>{{ item.title }}</h3>
+                  <p class="meta">
+                    {{ item.author.username }} · {{ formatQuestionStatus(item.status) }} · {{ item.answers_count }} 回答
+                  </p>
+                </div>
+                <span class="pill">{{ item.category_name || "未分类" }}</span>
+              </div>
+              <section class="markdown qa-question-markdown" v-html="renderMarkdown(item.content_md || '')"></section>
+            </section>
+
+            <div class="qa-detail-actions" v-if="canToggleStatus">
+              <button class="btn" type="button" @click="startEditQuestion" v-if="canEditQuestion && !questionEdit.editing">
+                编辑问题
+              </button>
+              <button v-if="selectedQuestion.status === 'open'" class="btn" type="button" @click="closeQuestion">关闭问题</button>
+              <button v-else-if="selectedQuestion.status === 'closed'" class="btn" type="button" @click="reopenQuestion">重开问题</button>
+              <button class="btn" type="button" @click="removeQuestion">删除问题</button>
+            </div>
+
+            <section class="qa-edit-panel" v-if="questionEdit.editing">
+              <h3>编辑问题</h3>
+              <input class="input" v-model="questionEdit.title" placeholder="问题标题" />
+              <ImageUploadHelper label="上传图片并插入 Markdown" @uploaded="onQuestionEditImageUploaded" />
+              <textarea class="textarea" v-model="questionEdit.content_md" placeholder="Markdown 问题描述"></textarea>
+              <div class="qa-compose-actions">
+                <button class="btn btn-accent" type="button" @click="saveEditedQuestion">保存问题</button>
+                <button class="btn" type="button" @click="cancelEditQuestion">取消</button>
+              </div>
+            </section>
+
+            <section class="qa-answer-panel">
+              <div class="qa-answer-head">
+                <div>
+                  <h3>回答区</h3>
+                  <p class="meta">共 {{ currentAnswers.length }} 条回答</p>
+                </div>
+                <select class="select qa-answer-order" v-model="answerOrder" @change="reloadAnswersOrder">
                   <option value="oldest">按时间正序</option>
                   <option value="latest">按时间倒序</option>
                   <option value="accepted_first">采纳优先</option>
                 </select>
               </div>
-            </div>
-            <article class="answer-item" v-for="answer in answers" :key="answer.id">
-              <div class="meta">
-                {{ answer.author.username }} · {{ formatTime(answer.created_at) }}
-                <span class="pill" v-if="answer.is_accepted">已采纳</span>
-                <span class="pill" v-if="answer.status !== 'visible'">{{ formatAnswerStatus(answer.status) }}</span>
-              </div>
-              <section
-                v-if="answerEdit.id !== answer.id"
-                class="markdown"
-                v-html="renderMarkdown(answer.content_md)"
-              ></section>
-              <div v-else class="answer-form">
-                <ImageUploadHelper label="上传图片并插入 Markdown" @uploaded="onAnswerEditImageUploaded" />
-                <textarea class="textarea" v-model="answerEdit.content_md" placeholder="编辑回答"></textarea>
-                <div class="answer-actions">
-                  <button class="btn btn-accent" @click="saveEditedAnswer(answer)">保存回答</button>
-                  <button class="btn" @click="cancelEditAnswer">取消</button>
+
+              <article class="answer-item" v-for="answer in currentAnswers" :key="String(answer.id)">
+                <div class="answer-item-head">
+                  <div class="meta">
+                    {{ answer.author.username }} · {{ formatTime(answer.created_at) }}
+                  </div>
+                  <div class="answer-item-flags">
+                    <span class="pill" v-if="answer.is_accepted">已采纳</span>
+                    <span class="pill" v-if="answer.status !== 'visible'">{{ formatAnswerStatus(answer.status) }}</span>
+                  </div>
                 </div>
-              </div>
-              <div class="answer-actions">
-                <button v-if="canAcceptAnswer && !answer.is_accepted" class="btn" @click="acceptAnswer(answer.id)">采纳</button>
-                <button v-if="canEditAnswer(answer) && answerEdit.id !== answer.id" class="btn" @click="startEditAnswer(answer)">
-                  编辑回答
-                </button>
-                <button v-if="canDeleteAnswer(answer)" class="btn" @click="removeAnswer(answer.id)">删除回答</button>
-              </div>
-            </article>
-            <button v-if="answerPagination.next" class="btn btn-more" @click="loadMoreAnswers">
-              {{ answerPagination.loadingMore ? "加载中..." : "加载更多回答" }}
-            </button>
-          </section>
 
-          <div class="answer-form" v-if="auth.isAuthenticated">
-            <ImageUploadHelper label="上传图片并插入 Markdown" @uploaded="onAnswerImageUploaded" />
-            <textarea class="textarea" v-model="answerForm.content_md" placeholder="写下回答"></textarea>
-            <div class="answer-actions">
-              <button class="btn" @click="restoreAnswerDraft" :disabled="!selectedQuestion">恢复草稿</button>
-              <button class="btn" @click="clearAnswerDraft" :disabled="!selectedQuestion">清空草稿</button>
+                <section
+                  v-if="answerEdit.id !== answer.id"
+                  class="markdown"
+                  v-html="renderMarkdown(answer.content_md || '')"
+                ></section>
+
+                <div v-else class="qa-edit-panel">
+                  <ImageUploadHelper label="上传图片并插入 Markdown" @uploaded="onAnswerEditImageUploaded" />
+                  <textarea class="textarea" v-model="answerEdit.content_md" placeholder="编辑回答"></textarea>
+                  <div class="qa-compose-actions">
+                    <button class="btn btn-accent" type="button" @click="saveEditedAnswer(answer)">保存回答</button>
+                    <button class="btn" type="button" @click="cancelEditAnswer">取消</button>
+                  </div>
+                </div>
+
+                <div class="qa-compose-actions" v-if="!answer.__demo">
+                  <button v-if="canAcceptAnswer && !answer.is_accepted" class="btn" type="button" @click="acceptAnswer(answer.id)">采纳</button>
+                  <button v-if="canEditAnswer(answer) && answerEdit.id !== answer.id" class="btn" type="button" @click="startEditAnswer(answer)">
+                    编辑回答
+                  </button>
+                  <button v-if="canDeleteAnswer(answer)" class="btn" type="button" @click="removeAnswer(answer.id)">删除回答</button>
+                </div>
+              </article>
+
+              <button v-if="answerPagination.next" class="btn qa-more" type="button" @click="loadMoreAnswers">
+                {{ answerPagination.loadingMore ? "加载中..." : "加载更多回答" }}
+              </button>
+            </section>
+
+            <div class="qa-edit-panel" v-if="auth.isAuthenticated && !isSelectedDemoQuestion">
+              <ImageUploadHelper label="上传图片并插入 Markdown" @uploaded="onAnswerImageUploaded" />
+              <textarea class="textarea" v-model="answerForm.content_md" placeholder="写下回答"></textarea>
+              <div class="qa-compose-actions">
+                <button class="btn" type="button" @click="restoreAnswerDraft" :disabled="!selectedQuestion">恢复草稿</button>
+                <button class="btn" type="button" @click="clearAnswerDraft" :disabled="!selectedQuestion">清空草稿</button>
+              </div>
+              <button class="btn btn-accent" type="button" @click="createAnswer">提交回答</button>
             </div>
-            <button class="btn btn-accent" @click="createAnswer">提交回答</button>
-          </div>
-          <p v-else class="meta">登录后可回答。</p>
-        </section>
-      </article>
-      <p v-if="!questions.length" class="meta">暂无问题。</p>
-    </article>
 
-    <aside class="qa-right">
-      <h3>使用提示</h3>
-      <p class="meta">描述最小可复现信息，便于社区更快定位问题。</p>
-      <p class="meta">管理员与学校用户可协助维护赛事板块内容。</p>
-      <RouterLink class="hint-link" :to="{ name: 'wiki' }">返回知识库</RouterLink>
-      <RouterLink class="hint-link" :to="{ name: 'review' }" v-if="auth.isReviewer">进入审核台</RouterLink>
-    </aside>
+            <p v-else-if="isSelectedDemoQuestion" class="meta">演示问题只用于本地验收，不会提交回答到后端。</p>
+            <p v-else class="meta">登录后可回答。</p>
+          </section>
+        </article>
+
+        <button v-if="questionPagination.next && !usingDemoQuestions" class="btn qa-more" type="button" @click="loadMoreQuestions">
+          {{ questionPagination.loadingMore ? "加载中..." : "加载更多问题" }}
+        </button>
+
+        <div v-if="!displayQuestions.length" class="qa-empty card">
+          <strong>暂无讨论</strong>
+          <p class="meta">你可以先切换筛选条件，或者发布第一条问题。</p>
+        </div>
+      </section>
+    </main>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
 
 import ImageUploadHelper from "../components/ImageUploadHelper.vue";
+import { DEMO_QA_QUESTIONS } from "../content/demoContent";
 import api from "../services/api";
 import { renderMarkdown } from "../services/markdown";
 import { useAuthStore } from "../stores/auth";
@@ -176,10 +275,13 @@ import { useUiStore } from "../stores/ui";
 const auth = useAuthStore();
 const ui = useUiStore();
 
+const categories = ref([]);
 const questions = ref([]);
 const selectedQuestion = ref(null);
 const answers = ref([]);
 const answerOrder = ref("oldest");
+const showAskPanel = ref(false);
+const answerPreviewMap = reactive({});
 const questionEdit = reactive({
   editing: false,
   title: "",
@@ -195,6 +297,7 @@ const filters = reactive({
   search: "",
   status: "",
   order: "latest",
+  category: "",
 });
 
 const questionPagination = reactive({
@@ -210,6 +313,7 @@ const answerPagination = reactive({
 });
 
 const questionForm = reactive({
+  category: "",
   title: "",
   content_md: "",
 });
@@ -218,16 +322,99 @@ const answerForm = reactive({
   content_md: "",
 });
 
+const scopeOptions = [
+  { value: "all", label: "全部问题", hint: "公开讨论流", authOnly: false },
+  { value: "mine", label: "我的提问", hint: "我发起的问题", authOnly: true },
+  { value: "answered", label: "我的回答", hint: "我参与过的讨论", authOnly: true },
+];
+
+const statusOptions = [
+  { value: "", label: "全部" },
+  { value: "open", label: "开放" },
+  { value: "closed", label: "已关闭" },
+  { value: "pending", label: "审核中" },
+];
+
+const orderOptions = [
+  { value: "latest", label: "最新活跃" },
+  { value: "answers", label: "最多回答" },
+  { value: "created_newest", label: "最新发布" },
+];
+
+const demoCategoryOptions = computed(() => {
+  const seen = new Set();
+  return DEMO_QA_QUESTIONS.reduce((list, item) => {
+    const key = String(item.category || item.category_name || "");
+    if (!key || seen.has(key)) return list;
+    seen.add(key);
+    list.push({
+      id: item.category,
+      name: item.category_name,
+    });
+    return list;
+  }, []);
+});
+
+const categoryFilterOptions = computed(() => (categories.value.length ? categories.value : demoCategoryOptions.value));
+const usingDemoQuestions = computed(
+  () =>
+    Boolean(import.meta.env.DEV) &&
+    !questions.value.length &&
+    filters.scope === "all" &&
+    !filters.search.trim() &&
+    !filters.status &&
+    !filters.category
+);
+
+const displayQuestions = computed(() => {
+  if (questions.value.length) {
+    return [...questions.value];
+  }
+  if (!usingDemoQuestions.value) {
+    return [];
+  }
+  return sortQuestionList([...DEMO_QA_QUESTIONS]);
+});
+
+const isSelectedDemoQuestion = computed(() => Boolean(selectedQuestion.value?.__demo));
+const currentAnswers = computed(() => (isSelectedDemoQuestion.value ? selectedQuestion.value?.demo_answers || [] : answers.value));
+
 const canToggleStatus = computed(() => {
-  if (!selectedQuestion.value || !auth.user) return false;
+  if (!selectedQuestion.value || !auth.user || isSelectedDemoQuestion.value) return false;
   return auth.isManager || selectedQuestion.value.author.id === auth.user.id;
 });
 const canAcceptAnswer = computed(
-  () => canToggleStatus.value && ["open", "closed"].includes(selectedQuestion.value?.status || "")
+  () => !isSelectedDemoQuestion.value && canToggleStatus.value && ["open", "closed"].includes(selectedQuestion.value?.status || "")
 );
 const canEditQuestion = computed(() => {
-  if (!selectedQuestion.value || !auth.user) return false;
+  if (!selectedQuestion.value || !auth.user || isSelectedDemoQuestion.value) return false;
   return auth.isManager || selectedQuestion.value.author.id === auth.user.id;
+});
+
+const boardTitle = computed(() => {
+  if (filters.scope === "mine") return "我的提问";
+  if (filters.scope === "answered") return "我参与的讨论";
+  return "最新讨论";
+});
+
+const boardDescription = computed(() => {
+  if (usingDemoQuestions.value) {
+    return "当前没有真实问答数据，页面已自动填充演示讨论串，方便你直接验收布局和主题。";
+  }
+  if (filters.scope === "mine") {
+    return "这里展示你自己发起的问题，以及它们当前的审核和讨论状态。";
+  }
+  if (filters.scope === "answered") {
+    return "这里聚合了你回答过的问题，方便继续追踪后续讨论。";
+  }
+  return "按讨论流浏览最新问题，列表会优先突出状态、标签、回答数和摘要。";
+});
+
+const scopeSummary = computed(() => {
+  if (usingDemoQuestions.value) {
+    return `正在显示 ${displayQuestions.value.length} 条演示问题，用于本地验收。`;
+  }
+  return `共 ${questionPagination.count || displayQuestions.value.length} 条结果，当前模式：${boardTitle.value}。`;
 });
 
 function appendMarkdown(target, snippet) {
@@ -235,6 +422,18 @@ function appendMarkdown(target, snippet) {
   if (!next) return String(target || "");
   const base = String(target || "");
   return base ? `${base}\n\n${next}\n` : `${next}\n`;
+}
+
+function isDemoQuestion(item) {
+  return Boolean(item?.__demo);
+}
+
+function toggleAskPanel() {
+  if (!auth.isAuthenticated) {
+    ui.info("请先登录后再提问。");
+    return;
+  }
+  showAskPanel.value = !showAskPanel.value;
 }
 
 function onQuestionImageUploaded(payload) {
@@ -254,20 +453,44 @@ function onAnswerEditImageUploaded(payload) {
 }
 
 function canDeleteAnswer(answer) {
-  if (!auth.user) return false;
+  if (!auth.user || answer?.__demo) return false;
   return auth.isManager || answer.author.id === auth.user.id;
 }
 
 function canEditAnswer(answer) {
-  if (!auth.user) return false;
+  if (!auth.user || answer?.__demo) return false;
   return auth.isManager || answer.author.id === auth.user.id;
+}
+
+function stripMarkdown(value) {
+  return String(value || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "[图片]")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\|/g, " ")
+    .replace(/\r?\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildExcerpt(value, limit = 118) {
+  const text = stripMarkdown(value);
+  if (!text) return "展开后查看完整内容。";
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
 function formatTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function formatQuestionStatus(status) {
@@ -289,6 +512,64 @@ function formatAnswerStatus(status) {
   return map[status] || status || "-";
 }
 
+function getQuestionPreview(item) {
+  if (isDemoQuestion(item)) {
+    const bestAnswer = [...(item.demo_answers || [])].sort((a, b) => Number(b.is_accepted) - Number(a.is_accepted))[0];
+    if (bestAnswer) {
+      return {
+        text: buildExcerpt(bestAnswer.content_md),
+        isAccepted: Boolean(bestAnswer.is_accepted),
+        sourceLabel: bestAnswer.is_accepted ? "最佳回答摘要" : "讨论摘录",
+      };
+    }
+    return {
+      text: buildExcerpt(item.content_md),
+      isAccepted: false,
+      sourceLabel: "问题概览",
+    };
+  }
+  const cached = answerPreviewMap[item.id];
+  if (cached) return cached;
+  return {
+    text: buildExcerpt(item.content_md),
+    isAccepted: false,
+    sourceLabel: "问题概览",
+  };
+}
+
+function compareDate(valueA, valueB) {
+  return new Date(valueA || 0).getTime() - new Date(valueB || 0).getTime();
+}
+
+function sortQuestionList(items) {
+  const sorted = [...items];
+  if (filters.order === "answers") {
+    return sorted.sort((a, b) => Number(b.answers_count || 0) - Number(a.answers_count || 0) || compareDate(b.updated_at, a.updated_at));
+  }
+  if (filters.order === "created_newest") {
+    return sorted.sort((a, b) => compareDate(b.created_at, a.created_at));
+  }
+  if (filters.order === "created_oldest") {
+    return sorted.sort((a, b) => compareDate(a.created_at, b.created_at));
+  }
+  if (filters.order === "oldest") {
+    return sorted.sort((a, b) => compareDate(a.updated_at, b.updated_at));
+  }
+  return sorted.sort((a, b) => compareDate(b.updated_at, a.updated_at));
+}
+
+function matchesQuestionFilters(item) {
+  if (!item) return false;
+  if (filters.status && item.status !== filters.status) return false;
+  if (filters.category && String(item.category) !== String(filters.category)) return false;
+  const keyword = filters.search.trim().toLowerCase();
+  if (keyword) {
+    const haystack = `${item.title || ""}\n${item.content_md || ""}\n${item.category_name || ""}`.toLowerCase();
+    if (!haystack.includes(keyword)) return false;
+  }
+  return true;
+}
+
 function normalizePageValue(page, fallback = 1) {
   const n = Number(page);
   if (!Number.isFinite(n) || n < 1) return fallback;
@@ -302,6 +583,12 @@ function nextPageFromUrl(url, fallback = 2) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeCategoryId(value) {
+  const raw = String(value || "").trim();
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  return Number(raw);
 }
 
 function safeParseDraft(rawValue) {
@@ -327,6 +614,7 @@ function persistQuestionDraft() {
     localStorage.setItem(
       getQuestionDraftKey(),
       JSON.stringify({
+        category: questionForm.category,
         title: questionForm.title,
         content_md: questionForm.content_md,
         updated_at: Date.now(),
@@ -341,6 +629,7 @@ function restoreQuestionDraft(showMessage = true) {
   if (!auth.isAuthenticated) return;
   const payload = safeParseDraft(localStorage.getItem(getQuestionDraftKey()));
   if (!payload) return;
+  questionForm.category = payload.category || "";
   questionForm.title = payload.title || "";
   questionForm.content_md = payload.content_md || "";
   if (showMessage) ui.info("已恢复问题草稿");
@@ -352,11 +641,14 @@ function clearQuestionDraft(showMessage = true) {
   } catch {
     // ignore storage errors
   }
+  questionForm.category = "";
+  questionForm.title = "";
+  questionForm.content_md = "";
   if (showMessage) ui.info("已清空问题草稿");
 }
 
 function persistAnswerDraft() {
-  if (!auth.isAuthenticated || !selectedQuestion.value) return;
+  if (!auth.isAuthenticated || !selectedQuestion.value || isSelectedDemoQuestion.value) return;
   try {
     localStorage.setItem(
       getAnswerDraftKey(selectedQuestion.value.id),
@@ -371,14 +663,14 @@ function persistAnswerDraft() {
 }
 
 function restoreAnswerDraft(showMessage = true) {
-  if (!auth.isAuthenticated || !selectedQuestion.value) return;
+  if (!auth.isAuthenticated || !selectedQuestion.value || isSelectedDemoQuestion.value) return;
   const payload = safeParseDraft(localStorage.getItem(getAnswerDraftKey(selectedQuestion.value.id)));
   answerForm.content_md = payload?.content_md || "";
   if (payload && showMessage) ui.info("已恢复回答草稿");
 }
 
 function clearAnswerDraft(showMessage = true) {
-  if (!selectedQuestion.value) return;
+  if (!selectedQuestion.value || isSelectedDemoQuestion.value) return;
   try {
     localStorage.removeItem(getAnswerDraftKey(selectedQuestion.value.id));
   } catch {
@@ -394,6 +686,7 @@ function buildQuestionParams(page = 1) {
   if (filters.search.trim()) params.search = filters.search.trim();
   if (filters.status) params.status = filters.status;
   if (filters.order) params.order = filters.order;
+  if (filters.category) params.category = filters.category;
   return params;
 }
 
@@ -405,38 +698,177 @@ function buildAnswerParams(questionId, page = 1) {
   };
 }
 
-async function loadQuestions(page = 1, append = false) {
+async function loadCategories() {
+  try {
+    const { data } = await api.get("/categories/");
+    categories.value = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+    if (!questionForm.category && categories.value.length) {
+      questionForm.category = String(categories.value[0].id);
+    }
+  } catch {
+    categories.value = [];
+  }
+}
+
+function clearQuestionSelection() {
+  selectedQuestion.value = null;
+  answers.value = [];
+  answerPagination.count = 0;
+  answerPagination.next = "";
+  cancelEditQuestion();
+  cancelEditAnswer();
+}
+
+async function loadAnswerPreview(item) {
+  if (!item?.id || answerPreviewMap[item.id]) return;
+  try {
+    const { data } = await api.get("/answers/", {
+      params: {
+        question: item.id,
+        page: 1,
+        order: "accepted_first",
+      },
+    });
+    const list = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+    const best = list[0];
+    if (best) {
+      answerPreviewMap[item.id] = {
+        text: buildExcerpt(best.content_md),
+        isAccepted: Boolean(best.is_accepted),
+        sourceLabel: best.is_accepted ? "最佳回答摘要" : "最新回答摘要",
+      };
+      return;
+    }
+  } catch {
+    // Keep cards usable when preview requests fail.
+  }
+  answerPreviewMap[item.id] = {
+    text: buildExcerpt(item.content_md),
+    isAccepted: false,
+    sourceLabel: "问题概览",
+  };
+}
+
+async function primeAnswerPreviews(items) {
+  const targets = items.filter((item) => item && !item.__demo).slice(0, 8);
+  await Promise.all(targets.map((item) => loadAnswerPreview(item)));
+}
+
+function mergeQuestions(existing, incoming) {
+  const map = new Map(existing.map((item) => [String(item.id), item]));
+  incoming.forEach((item) => {
+    map.set(String(item.id), item);
+  });
+  return sortQuestionList([...map.values()]);
+}
+
+async function loadAnsweredQuestions(page = 1, append = false) {
+  if (!auth.isAuthenticated) {
+    questions.value = [];
+    questionPagination.count = 0;
+    questionPagination.next = "";
+    clearQuestionSelection();
+    return;
+  }
+
   const safePage = normalizePageValue(page, 1);
   try {
-    const { data } = await api.get("/questions/", { params: buildQuestionParams(safePage) });
-    const items = data.results || data;
-    questions.value = append ? [...questions.value, ...items] : items;
-    questionPagination.count = data.count || questions.value.length;
-    questionPagination.next = data.next || "";
+    const { data } = await api.get("/answers/mine/", {
+      params: { page: safePage, order: "latest" },
+    });
+    const answerItems = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+    const previewMap = new Map();
+    answerItems.forEach((item) => {
+      if (!previewMap.has(item.question)) {
+        previewMap.set(item.question, item);
+      }
+    });
+
+    const details = await Promise.all(
+      [...previewMap.keys()].map(async (questionId) => {
+        try {
+          const response = await api.get(`/questions/${questionId}/`);
+          return response.data;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const items = details
+      .filter(Boolean)
+      .map((item) => {
+        const myAnswer = previewMap.get(item.id);
+        answerPreviewMap[item.id] = {
+          text: buildExcerpt(myAnswer?.content_md || item.content_md),
+          isAccepted: Boolean(myAnswer?.is_accepted),
+          sourceLabel: myAnswer?.is_accepted ? "我的已采纳回答" : "我的回答摘要",
+        };
+        return item;
+      })
+      .filter(matchesQuestionFilters);
+
+    questions.value = append ? mergeQuestions(questions.value, items) : sortQuestionList(items);
+    questionPagination.count = Number(data?.count || questions.value.length);
+    questionPagination.next = data?.next || "";
 
     if (!questions.value.length) {
-      selectedQuestion.value = null;
-      answers.value = [];
-      answerPagination.count = 0;
-      answerPagination.next = "";
-      cancelEditQuestion();
-      cancelEditAnswer();
+      clearQuestionSelection();
       return;
     }
 
     if (append) return;
 
     const currentId = selectedQuestion.value?.id;
-    const target = currentId ? questions.value.find((item) => item.id === currentId) : questions.value[0];
+    const target = currentId ? questions.value.find((item) => String(item.id) === String(currentId)) : questions.value[0];
+    if (!target) {
+      await selectQuestion(questions.value[0]);
+      return;
+    }
+    await selectQuestion(target);
+  } catch (error) {
+    if (safePage !== 1 && isInvalidPageError(error)) {
+      return loadAnsweredQuestions(1, false);
+    }
+    ui.error(getErrorText(error, "已回答问题加载失败"));
+  }
+}
+
+async function loadQuestions(page = 1, append = false) {
+  if (filters.scope === "answered") {
+    await loadAnsweredQuestions(page, append);
+    return;
+  }
+
+  const safePage = normalizePageValue(page, 1);
+  try {
+    const { data } = await api.get("/questions/", { params: buildQuestionParams(safePage) });
+    const items = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+    questions.value = append ? mergeQuestions(questions.value, items) : sortQuestionList(items);
+    questionPagination.count = Number(data?.count || questions.value.length);
+    questionPagination.next = data?.next || "";
+
+    if (!questions.value.length) {
+      if (!append && usingDemoQuestions.value && displayQuestions.value.length) {
+        await selectQuestion(displayQuestions.value[0]);
+        return;
+      }
+      clearQuestionSelection();
+      return;
+    }
+
+    await primeAnswerPreviews(questions.value);
+
+    if (append) return;
+
+    const currentId = selectedQuestion.value?.id;
+    const target = currentId ? questions.value.find((item) => String(item.id) === String(currentId)) : questions.value[0];
     if (!target) {
       await selectQuestion(questions.value[0]);
       return;
     }
 
-    selectedQuestion.value = target;
-    cancelEditQuestion();
-    cancelEditAnswer();
-    await loadAnswers(target.id, 1, false);
+    await selectQuestion(target);
   } catch (error) {
     if (safePage !== 1 && isInvalidPageError(error)) {
       return loadQuestions(1, false);
@@ -446,11 +878,20 @@ async function loadQuestions(page = 1, append = false) {
 }
 
 async function selectQuestion(item) {
-  if (!item) return;
+  if (!item) {
+    clearQuestionSelection();
+    return;
+  }
   try {
     selectedQuestion.value = item;
     cancelEditQuestion();
     cancelEditAnswer();
+    if (isDemoQuestion(item)) {
+      answers.value = [];
+      answerPagination.count = item.demo_answers?.length || 0;
+      answerPagination.next = "";
+      return;
+    }
     await loadAnswers(item.id, 1, false);
   } catch (error) {
     ui.error(getErrorText(error, "回答加载失败"));
@@ -460,12 +901,7 @@ async function selectQuestion(item) {
 async function toggleQuestion(item) {
   if (!item) return;
   if (selectedQuestion.value?.id === item.id) {
-    selectedQuestion.value = null;
-    answers.value = [];
-    answerPagination.count = 0;
-    answerPagination.next = "";
-    cancelEditQuestion();
-    cancelEditAnswer();
+    clearQuestionSelection();
     return;
   }
   await selectQuestion(item);
@@ -498,7 +934,7 @@ async function loadMoreQuestions() {
 }
 
 async function loadMoreAnswers() {
-  if (!selectedQuestion.value || !answerPagination.next || answerPagination.loadingMore) return;
+  if (!selectedQuestion.value || !answerPagination.next || answerPagination.loadingMore || isSelectedDemoQuestion.value) return;
   answerPagination.loadingMore = true;
   try {
     await loadAnswers(selectedQuestion.value.id, nextPageFromUrl(answerPagination.next), true);
@@ -508,9 +944,29 @@ async function loadMoreAnswers() {
 }
 
 async function reloadAnswersOrder() {
-  if (!selectedQuestion.value) return;
+  if (!selectedQuestion.value || isSelectedDemoQuestion.value) return;
   cancelEditAnswer();
   await loadAnswers(selectedQuestion.value.id, 1, false);
+}
+
+function switchScope(scope) {
+  if (!scope || filters.scope === scope) return;
+  if ((scope === "mine" || scope === "answered") && !auth.isAuthenticated) {
+    ui.info("请先登录后查看该分区。");
+    return;
+  }
+  filters.scope = scope;
+  loadQuestions(1, false);
+}
+
+function setStatusFilter(status) {
+  filters.status = status;
+  loadQuestions(1, false);
+}
+
+function setOrder(order) {
+  filters.order = order;
+  loadQuestions(1, false);
 }
 
 function resetQuestionFilters() {
@@ -518,6 +974,7 @@ function resetQuestionFilters() {
   filters.search = "";
   filters.status = "";
   filters.order = "latest";
+  filters.category = "";
   loadQuestions(1, false);
 }
 
@@ -535,7 +992,7 @@ function cancelEditQuestion() {
 }
 
 async function saveEditedQuestion() {
-  if (!selectedQuestion.value || !canEditQuestion.value) return;
+  if (!selectedQuestion.value || !canEditQuestion.value || isSelectedDemoQuestion.value) return;
   if (!questionEdit.title.trim() || !questionEdit.content_md.trim()) {
     ui.info("请填写问题标题和内容");
     return;
@@ -566,7 +1023,7 @@ function cancelEditAnswer() {
 }
 
 async function saveEditedAnswer(answer) {
-  if (!canEditAnswer(answer)) return;
+  if (!canEditAnswer(answer) || isSelectedDemoQuestion.value) return;
   if (!answerEdit.content_md.trim()) {
     ui.info("回答内容不能为空");
     return;
@@ -578,30 +1035,34 @@ async function saveEditedAnswer(answer) {
     ui.success(data?.status === "pending" ? "回答已更新，等待管理员重新审核" : "回答已更新");
     cancelEditAnswer();
     await loadAnswers(selectedQuestion.value.id, 1, false);
+    await primeAnswerPreviews([selectedQuestion.value]);
   } catch (error) {
     ui.error(getErrorText(error, "更新回答失败"));
   }
 }
 
 async function createQuestion() {
-  if (!questionForm.title || !questionForm.content_md) {
+  if (!questionForm.title.trim() || !questionForm.content_md.trim()) {
     ui.info("请填写问题标题和内容");
+    return;
+  }
+  const categoryId = normalizeCategoryId(questionForm.category);
+  if (!categoryId) {
+    ui.info("请先选择问题分类");
     return;
   }
 
   try {
-    const payload = {
-      title: questionForm.title,
+    const { data } = await api.post("/questions/", {
+      title: questionForm.title.trim(),
       content_md: questionForm.content_md,
-    };
+      category: categoryId,
+    });
 
-    const { data } = await api.post("/questions/", payload);
-
-    questionForm.title = "";
-    questionForm.content_md = "";
     clearQuestionDraft(false);
+    showAskPanel.value = false;
     await loadQuestions(1, false);
-    const created = questions.value.find((item) => item.id === data.id);
+    const created = questions.value.find((item) => String(item.id) === String(data.id));
     if (created) {
       await selectQuestion(created);
     }
@@ -612,7 +1073,7 @@ async function createQuestion() {
 }
 
 async function createAnswer() {
-  if (!selectedQuestion.value || !answerForm.content_md.trim()) {
+  if (!selectedQuestion.value || !answerForm.content_md.trim() || isSelectedDemoQuestion.value) {
     ui.info("请填写回答内容");
     return;
   }
@@ -633,6 +1094,7 @@ async function createAnswer() {
 }
 
 async function acceptAnswer(answerId) {
+  if (isSelectedDemoQuestion.value) return;
   try {
     await api.post(`/answers/${answerId}/accept/`);
     cancelEditAnswer();
@@ -645,10 +1107,10 @@ async function acceptAnswer(answerId) {
 }
 
 async function closeQuestion() {
+  if (isSelectedDemoQuestion.value) return;
   try {
     await api.post(`/questions/${selectedQuestion.value.id}/close/`);
-    await loadQuestions();
-    selectedQuestion.value.status = "closed";
+    await loadQuestions(1, false);
     ui.success("问题已关闭");
   } catch (error) {
     ui.error(getErrorText(error, "关闭问题失败"));
@@ -656,10 +1118,10 @@ async function closeQuestion() {
 }
 
 async function reopenQuestion() {
+  if (isSelectedDemoQuestion.value) return;
   try {
     await api.post(`/questions/${selectedQuestion.value.id}/reopen/`);
-    await loadQuestions();
-    selectedQuestion.value.status = "open";
+    await loadQuestions(1, false);
     ui.success("问题已重开");
   } catch (error) {
     ui.error(getErrorText(error, "重开问题失败"));
@@ -667,22 +1129,20 @@ async function reopenQuestion() {
 }
 
 async function removeQuestion() {
-  if (!selectedQuestion.value) return;
+  if (!selectedQuestion.value || isSelectedDemoQuestion.value) return;
   if (!window.confirm(`确认删除问题「${selectedQuestion.value.title}」？`)) return;
   try {
     await api.delete(`/questions/${selectedQuestion.value.id}/`);
     ui.success("问题已删除");
-    selectedQuestion.value = null;
-    answers.value = [];
-    cancelEditQuestion();
-    cancelEditAnswer();
-    await loadQuestions();
+    clearQuestionSelection();
+    await loadQuestions(1, false);
   } catch (error) {
     ui.error(getErrorText(error, "删除问题失败"));
   }
 }
 
 async function removeAnswer(answerId) {
+  if (isSelectedDemoQuestion.value) return;
   if (!window.confirm("确认删除该回答？")) return;
   try {
     await api.delete(`/answers/${answerId}/`);
@@ -727,7 +1187,7 @@ function isInvalidPageError(error) {
 }
 
 watch(
-  [() => questionForm.title, () => questionForm.content_md],
+  [() => questionForm.category, () => questionForm.title, () => questionForm.content_md],
   () => {
     persistQuestionDraft();
   }
@@ -737,7 +1197,9 @@ watch(
   () => selectedQuestion.value?.id,
   () => {
     answerForm.content_md = "";
-    restoreAnswerDraft(false);
+    if (!isSelectedDemoQuestion.value) {
+      restoreAnswerDraft(false);
+    }
   }
 );
 
@@ -752,207 +1214,527 @@ watch(
   () => auth.user?.id,
   () => {
     restoreQuestionDraft(false);
-    if (selectedQuestion.value) restoreAnswerDraft(false);
+    if (selectedQuestion.value && !isSelectedDemoQuestion.value) restoreAnswerDraft(false);
   }
 );
 
 onMounted(async () => {
   restoreQuestionDraft(false);
+  await loadCategories();
   await loadQuestions();
 });
 </script>
 
 <style scoped>
-.qa-layout {
+.qa-shell {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 220px;
-  gap: 24px;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
 }
 
-.qa-sidebar,
-.qa-right {
-  align-self: start;
+.qa-sidebar {
   position: sticky;
-  top: 94px;
-}
-
-.qa-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.question-filters {
+  top: 92px;
+  padding: 16px;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 14px;
 }
 
-.qa-title-row h2 {
-  font-size: 34px;
+.qa-primary-btn {
+  width: 100%;
 }
 
-.question-item {
-  margin-top: 8px;
+.qa-sidebar-block {
+  display: grid;
+  gap: 10px;
+}
+
+.qa-sidebar-label {
+  margin: 0;
+  color: var(--text-quiet);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.qa-sidebar-link {
   border: 1px solid var(--hairline);
-  border-radius: 12px;
-  padding: 12px;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow: var(--shadow-sm);
-}
-
-.question-item.active {
-  background: rgba(79, 143, 255, 0.08);
-  box-shadow: var(--shadow-md);
-}
-
-.question-item h3 {
-  margin-bottom: 4px;
-  font-size: 20px;
-}
-
-.create-question {
-  margin-top: 12px;
-  border-top: 1px solid var(--hairline);
-  padding-top: 12px;
+  border-radius: 14px;
+  background: var(--surface-soft);
+  color: var(--text-strong);
+  padding: 10px 12px;
+  text-align: left;
   display: grid;
+  gap: 3px;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.qa-sidebar-link:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.qa-sidebar-link--active {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-strong));
+}
+
+.qa-sidebar-link:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.qa-sidebar-link span {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.qa-sidebar-link small {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.qa-chip-row {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.create-question :deep(.image-upload-helper),
-.answer-form :deep(.image-upload-helper) {
+.qa-chip {
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text);
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.qa-chip--active {
+  border-color: transparent;
+  background: var(--accent-gradient);
+  color: var(--accent-contrast);
+}
+
+.qa-side-meta {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.qa-side-actions,
+.qa-compose-actions,
+.qa-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qa-compose,
+.qa-edit-panel {
+  border: 1px solid var(--hairline);
+  border-radius: calc(var(--radius-md) - 2px);
+  background: var(--surface-soft);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.qa-compose :deep(.image-upload-helper),
+.qa-edit-panel :deep(.image-upload-helper) {
   margin-bottom: -1px;
 }
 
-.qa-main-header {
-  margin-bottom: 10px;
+.qa-compose h3,
+.qa-edit-panel h3,
+.qa-question-head h3,
+.qa-answer-head h3 {
+  margin: 0;
+  font-size: 22px;
 }
 
-.qa-main-header h1 {
-  font-size: clamp(34px, 5vw, 54px);
+.qa-login-tip {
+  margin: 0;
 }
 
-.qa-question-card {
-  padding: 14px;
-  margin-bottom: 12px;
+.qa-main {
+  display: grid;
+  gap: 16px;
 }
 
-.qa-question-title {
-  font-size: clamp(30px, 4.2vw, 52px);
+.qa-header {
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
 }
 
-.qa-expand-head {
+.qa-header-copy {
+  min-width: 0;
+}
+
+.qa-kicker {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.qa-header-copy h1 {
+  margin: 0;
+  font-size: clamp(34px, 4.4vw, 48px);
+}
+
+.qa-header-tools {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.qa-order-group {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.qa-order-btn {
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 8px 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 
-.qa-question-body {
-  margin-top: 10px;
-  border-top: 1px solid var(--hairline);
-  padding-top: 10px;
+.qa-order-btn--active {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-strong));
+  color: var(--accent);
 }
 
-.qa-actions {
-  margin: 10px 0 12px;
+.qa-demo-banner,
+.qa-demo-inline {
+  border: 1px dashed color-mix(in srgb, var(--accent) 36%, transparent);
+  border-radius: calc(var(--radius-sm) + 2px);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-soft));
+  color: var(--text-soft);
+  padding: 10px 12px;
+  font-size: 15px;
 }
 
-.answers {
-  margin-top: 12px;
+.qa-feed {
+  display: grid;
+  gap: 14px;
 }
 
-.answer-item {
-  border-top: 1px solid var(--hairline);
-  padding-top: 10px;
-  margin-top: 10px;
-  font-size: 16px;
+.qa-thread {
+  overflow: hidden;
 }
 
-.answers-head {
+.qa-thread--active {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.qa-thread-summary {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.qa-thread-copy {
+  padding: 18px 20px;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.qa-thread-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.answers-tools {
+.qa-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.qa-status--open {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+}
+
+.qa-status--closed {
+  background: color-mix(in srgb, var(--text-soft) 14%, transparent);
+  color: var(--text-soft);
+}
+
+.qa-status--pending {
+  background: var(--surface-warning);
+  color: var(--surface-warning-text);
+}
+
+.qa-thread-time {
+  color: var(--text-quiet);
+  font-size: 13px;
+}
+
+.qa-thread-copy h2 {
+  margin: 0;
+  font-size: clamp(22px, 2vw, 30px);
+  line-height: 1.2;
+}
+
+.qa-thread-preview {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 15px;
+  line-height: 1.66;
+}
+
+.qa-tag-row,
+.qa-thread-meta,
+.answer-item-flags {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.answer-actions {
-  margin-top: 8px;
-  display: flex;
-  gap: 8px;
+.qa-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: var(--surface-chip);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.btn-more {
-  margin-top: 10px;
+.qa-thread-meta {
+  color: var(--text-quiet);
+  font-size: 13px;
 }
 
-.answer-form {
-  margin-top: 14px;
+.qa-thread-side {
+  border-left: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-strong));
   display: grid;
-  gap: 8px;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  padding: 18px 12px;
 }
 
-.qa-right h3 {
-  font-size: 24px;
-  margin-bottom: 10px;
+.qa-thread-side strong {
+  font-size: 30px;
+  line-height: 1;
 }
 
-.hint-link {
-  display: block;
-  margin-top: 8px;
-  color: var(--accent);
-  font-size: 15px;
+.qa-thread-side span {
+  color: var(--text-quiet);
+  font-size: 12px;
 }
 
-@media (max-width: 1260px) {
-  .qa-layout {
-    grid-template-columns: 300px minmax(0, 1fr);
-  }
-
-  .qa-right {
-    grid-column: 1 / -1;
-    position: static;
-    border-top: 1px solid var(--hairline);
-    padding-top: 10px;
-  }
+.qa-thread-badge {
+  margin-top: 6px;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: var(--pill-bg);
+  color: var(--pill-text);
+  font-size: 12px;
+  font-weight: 700;
 }
 
-@media (max-width: 960px) {
-  .qa-layout {
+.qa-thread-detail {
+  border-top: 1px solid var(--hairline);
+  padding: 16px 20px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.qa-question-panel,
+.qa-answer-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.qa-question-head,
+.qa-answer-head,
+.answer-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.qa-question-markdown {
+  border: 1px solid var(--hairline);
+  border-radius: calc(var(--radius-sm) + 2px);
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.qa-answer-order {
+  width: 180px;
+}
+
+.answer-item {
+  border: 1px solid var(--hairline);
+  border-radius: calc(var(--radius-sm) + 2px);
+  background: var(--surface-soft);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.qa-more {
+  justify-self: start;
+}
+
+.qa-empty {
+  padding: 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.qa-empty strong {
+  font-size: 22px;
+}
+
+:global(html[data-theme="academic"]) .qa-sidebar-link,
+:global(html[data-theme="academic"]) .qa-compose,
+:global(html[data-theme="academic"]) .qa-edit-panel,
+:global(html[data-theme="academic"]) .qa-thread-side,
+:global(html[data-theme="academic"]) .qa-question-markdown,
+:global(html[data-theme="academic"]) .answer-item {
+  background: var(--surface-strong);
+}
+
+:global(html[data-theme="academic"]) .qa-thread-copy h2,
+:global(html[data-theme="academic"]) .qa-header-copy h1,
+:global(html[data-theme="academic"]) .qa-compose h3,
+:global(html[data-theme="academic"]) .qa-edit-panel h3,
+:global(html[data-theme="academic"]) .qa-question-head h3,
+:global(html[data-theme="academic"]) .qa-answer-head h3 {
+  font-family: var(--font-reading);
+}
+
+:global(html[data-theme="geek"]) .qa-sidebar,
+:global(html[data-theme="geek"]) .qa-sidebar-link,
+:global(html[data-theme="geek"]) .qa-compose,
+:global(html[data-theme="geek"]) .qa-edit-panel,
+:global(html[data-theme="geek"]) .qa-header,
+:global(html[data-theme="geek"]) .qa-thread,
+:global(html[data-theme="geek"]) .qa-question-markdown,
+:global(html[data-theme="geek"]) .answer-item,
+:global(html[data-theme="geek"]) .qa-demo-banner,
+:global(html[data-theme="geek"]) .qa-demo-inline {
+  border-width: 2px;
+}
+
+:global(html[data-theme="geek"]) .qa-sidebar-label,
+:global(html[data-theme="geek"]) .qa-kicker,
+:global(html[data-theme="geek"]) .qa-thread-copy h2,
+:global(html[data-theme="geek"]) .qa-header-copy h1 {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 1080px) {
+  .qa-shell {
     grid-template-columns: 1fr;
-    gap: 14px;
   }
 
   .qa-sidebar {
     position: static;
   }
 
-  .qa-main-header h1 {
-    font-size: clamp(30px, 9vw, 42px);
+  .qa-header {
+    grid-template-columns: 1fr;
   }
 
-  .question-item h3 {
-    font-size: 19px;
+  .qa-header-tools {
+    justify-items: start;
   }
 
-  .answers-head {
+  .qa-order-group {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .qa-thread-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .qa-thread-side {
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
+    grid-auto-flow: column;
+    justify-content: start;
+    justify-items: start;
+    gap: 10px;
+  }
+
+  .qa-thread-detail,
+  .qa-thread-copy {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .qa-question-head,
+  .qa-answer-head,
+  .answer-item-head {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .answers-tools {
-    flex-wrap: wrap;
+  .qa-answer-order {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .qa-sidebar,
+  .qa-header {
+    padding: 14px;
+  }
+
+  .qa-thread-copy h2 {
+    font-size: 20px;
+  }
+
+  .qa-thread-preview {
+    font-size: 14px;
+  }
+
+  .qa-thread-side strong {
+    font-size: 24px;
   }
 }
 </style>

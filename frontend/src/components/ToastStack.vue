@@ -51,7 +51,7 @@ const ui = useUiStore();
 .toast-main p {
   margin: 4px 0 0;
   font-size: 14px;
-  color: #273243;
+  color: var(--text-soft);
   line-height: 1.5;
 }
 
@@ -62,15 +62,15 @@ const ui = useUiStore();
 }
 
 .toast-success {
-  background: rgba(225, 252, 240, 0.96);
+  background: color-mix(in srgb, var(--success) 16%, var(--surface-overlay));
 }
 
 .toast-error {
-  background: rgba(255, 231, 233, 0.96);
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface-overlay));
 }
 
 .toast-info {
-  background: rgba(231, 241, 255, 0.96);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-overlay));
 }
 
 .toast-enter-active,

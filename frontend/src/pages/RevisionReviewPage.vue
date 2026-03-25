@@ -237,7 +237,7 @@ onMounted(async () => {
   border-radius: 12px;
   border: 1px solid var(--hairline);
   padding: 12px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface-strong);
 }
 
 .btn-press {
@@ -247,7 +247,7 @@ onMounted(async () => {
 .diff-render {
   border-radius: 12px;
   border: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--surface-strong);
   max-height: 58vh;
   overflow: auto;
 }
@@ -258,23 +258,23 @@ onMounted(async () => {
   gap: 8px;
   align-items: baseline;
   padding: 4px 10px;
-  font-family: "Consolas", "Courier New", monospace;
+  font-family: var(--font-mono);
   white-space: pre-wrap;
   line-height: 1.55;
 }
 
 .diff-render :deep(.diff-line--insert) {
-  background: rgba(45, 180, 105, 0.15);
-  color: #16643d;
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
 }
 
 .diff-render :deep(.diff-line--delete) {
-  background: rgba(224, 74, 74, 0.15);
-  color: #8d2222;
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
 }
 
 .diff-render :deep(.diff-line--equal) {
-  color: #2f3946;
+  color: var(--text);
 }
 
 .diff-render :deep(.diff-line--ellipsis) {
@@ -287,16 +287,16 @@ onMounted(async () => {
 }
 
 .diff-render :deep(.diff-inline-delete) {
-  background: rgba(224, 74, 74, 0.28);
-  color: #7a1c1c;
+  background: color-mix(in srgb, var(--danger) 24%, transparent);
+  color: var(--danger);
   text-decoration: line-through;
   padding: 0 2px;
   border-radius: 4px;
 }
 
 .diff-render :deep(.diff-inline-insert) {
-  background: rgba(45, 180, 105, 0.28);
-  color: #0f6139;
+  background: color-mix(in srgb, var(--success) 24%, transparent);
+  color: var(--success);
   padding: 0 2px;
   border-radius: 4px;
 }

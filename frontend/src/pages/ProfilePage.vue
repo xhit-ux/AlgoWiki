@@ -1098,7 +1098,7 @@ onMounted(async () => {
 .profile-main {
   border: 1px solid var(--hairline);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--surface);
   padding: 18px;
   box-shadow: var(--shadow-sm);
 }
@@ -1129,8 +1129,8 @@ onMounted(async () => {
 
 .profile-tab {
   border: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.82);
-  color: #3b4552;
+  background: var(--surface-strong);
+  color: var(--text-soft);
   border-radius: 999px;
   padding: 7px 14px;
   font-size: 14px;
@@ -1140,13 +1140,13 @@ onMounted(async () => {
 }
 
 .profile-tab:hover {
-  border-color: rgba(93, 103, 115, 0.35);
-  color: #1f2732;
+  border-color: var(--hairline-strong);
+  color: var(--text-strong);
 }
 
 .profile-tab.is-active {
-  border-color: rgba(96, 84, 255, 0.35);
-  background: rgba(115, 101, 255, 0.16);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong));
   color: var(--accent);
   font-weight: 600;
 }
@@ -1161,7 +1161,7 @@ onMounted(async () => {
   gap: 12px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: rgba(245, 250, 255, 0.72);
+  background: var(--surface-soft);
   padding: 12px;
 }
 
@@ -1175,7 +1175,7 @@ onMounted(async () => {
 
 .bio {
   margin: 8px 0 0;
-  color: #2e3540;
+  color: var(--text);
   font-size: 17px;
 }
 
@@ -1184,7 +1184,7 @@ onMounted(async () => {
   padding: 12px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: rgba(245, 250, 255, 0.72);
+  background: var(--surface-soft);
 }
 
 .section-block h3 {
@@ -1215,7 +1215,7 @@ onMounted(async () => {
   border: 1px solid var(--hairline);
   border-radius: 10px;
   padding: 11px;
-  background: rgba(246, 250, 255, 0.86);
+  background: var(--surface-soft);
   box-shadow: var(--shadow-sm);
   display: grid;
   gap: 4px;
@@ -1234,8 +1234,8 @@ onMounted(async () => {
   margin-top: 10px;
   padding: 11px 12px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(220, 227, 237, 0.8);
+  background: var(--surface-strong);
+  border: 1px solid var(--hairline);
 }
 
 .revision-row {
@@ -1256,7 +1256,7 @@ onMounted(async () => {
 }
 
 .revision-row.is-expanded .revision-card-trigger {
-  border-bottom: 1px solid rgba(220, 227, 237, 0.8);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .revision-detail {
@@ -1271,15 +1271,17 @@ onMounted(async () => {
 
 .revision-content-preview {
   margin: 0;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--content-code-border);
   border-radius: 10px;
-  background: rgba(247, 250, 255, 0.88);
-  color: #2f3742;
+  background: linear-gradient(180deg, var(--content-code-bg-top), var(--content-code-bg));
+  color: var(--content-code-text);
   padding: 10px;
   white-space: pre-wrap;
+  font-family: var(--font-mono);
   line-height: 1.45;
   max-height: 260px;
   overflow: auto;
+  box-shadow: var(--content-code-shadow);
 }
 
 .revision-actions {
@@ -1339,13 +1341,13 @@ onMounted(async () => {
   margin-top: 10px;
   padding: 11px 12px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(220, 227, 237, 0.8);
+  background: var(--surface-strong);
+  border: 1px solid var(--hairline);
 }
 
 .issue-note {
   margin-top: 6px;
-  color: #2f3742;
+  color: var(--text);
 }
 
 .event {
@@ -1387,7 +1389,7 @@ onMounted(async () => {
   border: 1px solid var(--hairline);
   border-radius: 10px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-strong);
   display: grid;
   gap: 2px;
 }
@@ -1403,7 +1405,7 @@ onMounted(async () => {
 
 .event-target {
   font-size: 13px;
-  color: #5d6673;
+  color: var(--text-quiet);
 }
 
 .star-link {

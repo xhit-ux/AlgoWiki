@@ -894,19 +894,21 @@ onMounted(async () => {
 }
 
 .tab-btn {
-  border: 0;
+  border: 1px solid var(--button-border);
   border-radius: 999px;
   padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #38445a;
+  background: var(--button-bg);
+  color: var(--button-text);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
 }
 
 .tab-btn--active {
-  background: linear-gradient(135deg, #6a5cff, #4b8cff);
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--accent-contrast);
+  border-color: transparent;
 }
 
 .schedule-page,
@@ -973,14 +975,26 @@ onMounted(async () => {
 
 .schedule-table th,
 .schedule-table td {
-  border: 1px solid rgba(17, 24, 39, 0.12);
+  border: 1px solid var(--hairline-strong);
   padding: 8px 10px;
   vertical-align: top;
 }
 
 .schedule-table thead th {
   text-align: left;
-  background: rgba(244, 247, 255, 0.92);
+  background: var(--table-head-bg);
+}
+
+.schedule-table tbody tr:nth-child(odd) {
+  background: var(--content-table-row);
+}
+
+.schedule-table tbody tr:nth-child(even) {
+  background: var(--content-table-row-alt);
+}
+
+.schedule-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .table-actions {
@@ -996,16 +1010,16 @@ onMounted(async () => {
 }
 
 .table-link {
-  color: #2f66ff;
+  color: var(--link);
   text-decoration: underline;
 }
 
 .table-link:visited {
-  color: #6a45c7;
+  color: var(--link-visited);
 }
 
 .row-past td {
-  color: #95a0b3;
+  color: var(--text-quiet);
 }
 
 .notice-page {
@@ -1045,7 +1059,7 @@ onMounted(async () => {
 
 .filter-block label {
   font-size: 13px;
-  color: #6a7486;
+  color: var(--text-quiet);
 }
 
 .notice-main {
@@ -1073,7 +1087,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #546071;
+  color: var(--text-soft);
 }
 
 .notice-list-wrap {
@@ -1099,9 +1113,9 @@ onMounted(async () => {
 }
 
 .notice-row {
-  border: 1px solid rgba(17, 24, 39, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   padding: 8px 10px;
   display: flex;
   justify-content: space-between;
@@ -1110,8 +1124,8 @@ onMounted(async () => {
 }
 
 .notice-row--active {
-  border-color: rgba(78, 120, 255, 0.36);
-  background: rgba(236, 243, 255, 0.78);
+  border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-strong));
 }
 
 .notice-main-btn {
@@ -1127,7 +1141,7 @@ onMounted(async () => {
 
 .notice-main-btn strong {
   font-size: 16px;
-  color: #1f2735;
+  color: var(--text-strong);
 }
 
 .notice-row-tools {
@@ -1245,9 +1259,9 @@ onMounted(async () => {
     display: grid;
     gap: 8px;
     padding: 12px;
-    border: 1px solid rgba(17, 24, 39, 0.08);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-md);
+    background: var(--surface-strong);
   }
 
   .schedule-table td {
@@ -1262,7 +1276,7 @@ onMounted(async () => {
     content: attr(data-label);
     font-size: 12px;
     font-weight: 600;
-    color: #6a7486;
+    color: var(--text-quiet);
   }
 
   .table-actions {

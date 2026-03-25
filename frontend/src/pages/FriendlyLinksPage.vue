@@ -325,7 +325,7 @@ onMounted(async () => {
 .markdown-preview {
   border-radius: 12px;
   border: 1px solid var(--hairline);
-  background: rgba(250, 252, 255, 0.72);
+  background: var(--surface-soft);
   padding: 10px 12px;
 }
 
@@ -343,7 +343,7 @@ onMounted(async () => {
   font-size: 20px;
   font-weight: 700;
   border-bottom: 1px solid var(--hairline);
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--surface-strong);
 }
 
 .links-head > div {
@@ -369,7 +369,7 @@ onMounted(async () => {
 }
 
 .link-item:hover {
-  background: rgba(243, 248, 255, 0.72);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-strong));
 }
 
 .name-col,
@@ -389,7 +389,7 @@ onMounted(async () => {
 .desc-markdown {
   margin: 0;
   line-height: 1.68;
-  color: #2a3342;
+  color: var(--text);
 }
 
 .desc-markdown :deep(p:first-child) {

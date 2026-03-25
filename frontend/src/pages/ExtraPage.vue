@@ -456,7 +456,7 @@ onMounted(async () => {
 .extra-main {
   border: 1px solid var(--hairline);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--surface);
   padding: 18px;
   box-shadow: var(--shadow-sm);
 }

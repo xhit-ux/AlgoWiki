@@ -111,8 +111,11 @@
           class="chapter-article-block"
           :id="`chapter-article-${item.id}`"
         >
-          <ArticlePage :id="item.id" :embedded="true" @deleted="handleEmbeddedArticleDeleted" />
+          <ArticlePage :id="item.id" :article-data="item" :embedded="true" @deleted="handleEmbeddedArticleDeleted" />
         </div>
+        <p v-if="usingDemoArticles" class="chapter-demo-tip">
+          当前展示的是开发环境演示正文，用于验收主题、表格和代码块样式。
+        </p>
         <p v-if="!chapterArticles.length" class="meta">当前章节暂无可展示内容。</p>
       </section>
     </main>
@@ -125,6 +128,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 
 import api from "../services/api";
 import ImageUploadHelper from "../components/ImageUploadHelper.vue";
+import { DEMO_WIKI_CATEGORY, buildDemoWikiArticle } from "../content/demoContent";
 import ArticlePage from "./ArticlePage.vue";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
@@ -192,17 +196,28 @@ const currentThemeName = computed(() => {
   return filters.search ? "搜索结果" : "全部条目";
 });
 
-const currentCategory = computed(() => categories.value.find((item) => isCategoryActive(item)) || null);
+const usingDemoCategory = computed(() => Boolean(import.meta.env.DEV) && !categories.value.length);
+const effectiveCategories = computed(() => (usingDemoCategory.value ? [DEMO_WIKI_CATEGORY] : categories.value));
+const usingDemoArticles = computed(() => Boolean(import.meta.env.DEV) && !articles.value.length);
+const currentCategory = computed(() => effectiveCategories.value.find((item) => isCategoryActive(item)) || null);
 
 const chapterCategories = computed(() => {
-  const topVisible = categories.value
+  const topVisible = effectiveCategories.value
     .filter((item) => item?.slug && !item.parent && item.is_visible !== false)
     .sort(sortCategories);
   const xcpcChapters = topVisible.filter((item) => String(item.slug).startsWith("xcpc-"));
   return xcpcChapters.length ? xcpcChapters : topVisible;
 });
 
-const chapterArticles = computed(() => [...articles.value]);
+const chapterArticles = computed(() => {
+  if (articles.value.length) {
+    return [...articles.value];
+  }
+  if (!usingDemoArticles.value) {
+    return [];
+  }
+  return [buildDemoWikiArticle(currentCategory.value || DEMO_WIKI_CATEGORY)];
+});
 const activeCategoryNodeId = computed(() => {
   const id = currentCategory.value?.id;
   if (id == null) return "";
@@ -676,6 +691,11 @@ watch(
   align-self: start;
   position: sticky;
   top: 94px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
 }
 
 .wiki-toc h3 {
@@ -717,9 +737,9 @@ watch(
 .publish-panel {
   margin-top: 8px;
   border: 1px solid var(--hairline);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 12px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -750,11 +770,20 @@ watch(
   margin-bottom: 0;
 }
 
+.chapter-demo-tip {
+  margin-top: 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 36%, transparent);
+  border-radius: calc(var(--radius-sm) + 2px);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-soft));
+  color: var(--text-soft);
+  padding: 10px 12px;
+}
+
 .chapter-view :deep(.article-main) {
   border: 1px solid var(--hairline);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.52);
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -776,6 +805,14 @@ watch(
   display: inline-block;
   color: var(--accent);
   font-size: 15px;
+  line-height: 1.4;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.toc-link:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .toc-link--active {
@@ -798,15 +835,18 @@ watch(
 .toc-sub-link {
   border: 0;
   background: transparent;
-  color: #384356;
+  color: var(--text-soft);
   font-size: 14px;
   text-align: left;
-  padding: 0;
+  padding: 4px 8px;
   cursor: pointer;
   line-height: 1.45;
+  border-radius: 8px;
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 
 .toc-sub-link:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent);
 }
 
@@ -816,7 +856,7 @@ watch(
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: #6b7789;
+  color: var(--text-quiet);
   font-size: 13px;
   line-height: 1;
   padding: 0;
@@ -824,7 +864,7 @@ watch(
 }
 
 .toc-toggle:hover {
-  background: rgba(140, 156, 180, 0.15);
+  background: var(--accent-soft);
 }
 
 .toc-toggle--placeholder {
@@ -832,28 +872,52 @@ watch(
 }
 
 .toc-level-1 .toc-sub-link {
-  color: #1f2a44;
+  color: var(--text-strong);
   font-weight: 600;
 }
 
 .toc-level-2 .toc-sub-link {
-  color: #2b4ea2;
+  color: color-mix(in srgb, var(--accent) 82%, var(--text) 18%);
 }
 
 .toc-level-3 .toc-sub-link {
-  color: #2b6b9d;
+  color: color-mix(in srgb, var(--accent) 66%, var(--text) 34%);
 }
 
 .toc-level-4 .toc-sub-link {
-  color: #415f8d;
+  color: color-mix(in srgb, var(--accent) 52%, var(--text) 48%);
 }
 
 .toc-level-5 .toc-sub-link {
-  color: #5a4f8d;
+  color: color-mix(in srgb, var(--accent) 38%, var(--text) 62%);
 }
 
 .toc-level-6 .toc-sub-link {
-  color: #7b4f8d;
+  color: color-mix(in srgb, var(--accent) 24%, var(--text) 76%);
+}
+
+:global(html[data-theme="academic"]) .wiki-toc {
+  background: var(--surface-strong);
+  box-shadow: var(--card-shadow);
+}
+
+:global(html[data-theme="academic"]) .toc-link,
+:global(html[data-theme="academic"]) .toc-sub-link {
+  font-family: var(--font-reading);
+}
+
+:global(html[data-theme="geek"]) .wiki-toc {
+  border-width: 2px;
+}
+
+:global(html[data-theme="geek"]) .chapter-demo-tip {
+  border-width: 2px;
+}
+
+:global(html[data-theme="geek"]) .wiki-toc h3,
+:global(html[data-theme="geek"]) .toc-link {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 @media (max-width: 1200px) {
@@ -900,9 +964,9 @@ watch(
 
   .chapter-view :deep(.article-layout.embedded-mode) {
     border: 1px solid var(--hairline);
-    border-radius: 14px;
+    border-radius: var(--radius-md);
     padding: 12px;
-    background: rgba(255, 255, 255, 0.6);
+    background: var(--surface);
     box-shadow: var(--shadow-sm);
   }
 

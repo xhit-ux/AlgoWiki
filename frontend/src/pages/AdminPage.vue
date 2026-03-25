@@ -2369,7 +2369,7 @@ watch(
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #4f8fff;
+  color: var(--accent);
 }
 
 .admin-shell-head h1 {
@@ -2385,8 +2385,8 @@ watch(
 .overview-help code {
   border-radius: 6px;
   padding: 2px 6px;
-  background: rgba(15, 23, 42, 0.08);
-  color: #1f2937;
+  background: var(--code-inline-bg);
+  color: var(--code-inline-text);
 }
 
 .admin-shell-note a,
@@ -2418,7 +2418,7 @@ watch(
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #6b7280;
+  color: var(--text-quiet);
 }
 
 .admin-nav-grid {
@@ -2430,7 +2430,7 @@ watch(
 .admin-nav-link {
   border: 1px solid var(--hairline);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
   padding: 12px 14px;
   display: grid;
@@ -2440,12 +2440,12 @@ watch(
 
 .admin-nav-link:hover {
   transform: translateY(-1px);
-  border-color: rgba(79, 143, 255, 0.28);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .admin-nav-link--active {
-  border-color: rgba(79, 143, 255, 0.42);
-  background: linear-gradient(180deg, rgba(242, 247, 255, 0.98), rgba(255, 255, 255, 0.72));
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-strong));
 }
 
 .admin-nav-top {
@@ -2457,7 +2457,7 @@ watch(
 
 .admin-nav-top strong {
   font-size: 16px;
-  color: #1e2733;
+  color: var(--text-strong);
 }
 
 .admin-nav-count {
@@ -2465,8 +2465,8 @@ watch(
   height: 28px;
   padding: 0 8px;
   border-radius: 999px;
-  background: rgba(79, 143, 255, 0.12);
-  color: #2d5fd4;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
   font-size: 13px;
   font-weight: 700;
   line-height: 28px;
@@ -2476,7 +2476,7 @@ watch(
 .admin-nav-desc {
   font-size: 13px;
   line-height: 1.5;
-  color: #5c6778;
+  color: var(--text-soft);
 }
 
 .admin-layout {
@@ -2487,7 +2487,7 @@ watch(
 .admin-card {
   border: 1px solid var(--hairline);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--surface);
   padding: 14px;
   box-shadow: var(--shadow-sm);
 }
@@ -2509,7 +2509,7 @@ watch(
 
 .overview-item {
   border-radius: 12px;
-  background: rgba(245, 250, 255, 0.82);
+  background: var(--surface-soft);
   padding: 10px 12px;
   display: grid;
   gap: 3px;
@@ -2521,7 +2521,7 @@ watch(
 
 .overview-item span {
   font-size: 14px;
-  color: #5d6673;
+  color: var(--text-quiet);
 }
 
 .overview-actions {
@@ -2546,7 +2546,7 @@ watch(
 .overview-panel {
   border-radius: 12px;
   padding: 10px 12px;
-  background: rgba(245, 250, 255, 0.82);
+  background: var(--surface-soft);
 }
 
 .overview-panel h3 {
@@ -2574,28 +2574,28 @@ watch(
 
 .overview-bar-row span,
 .overview-day-row span {
-  color: #586270;
+  color: var(--text-quiet);
   font-size: 13px;
 }
 
 .overview-bar-row strong,
 .overview-day-row strong {
   font-size: 13px;
-  color: #2f3742;
+  color: var(--text);
   text-align: right;
 }
 
 .overview-bar-track {
   height: 8px;
   border-radius: 999px;
-  background: rgba(30, 41, 59, 0.1);
+  background: color-mix(in srgb, var(--text-strong) 10%, transparent);
   overflow: hidden;
 }
 
 .overview-bar-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #4f8fff, #6d6bff);
+  background: var(--accent-gradient);
 }
 
 .announce-form {
@@ -2622,7 +2622,7 @@ watch(
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  color: #2f3742;
+  color: var(--text);
 }
 
 .bulk-select {
@@ -2641,7 +2641,7 @@ watch(
   padding: 11px 12px;
   margin-top: 10px;
   border-radius: 10px;
-  background: rgba(245, 250, 255, 0.82);
+  background: var(--surface-soft);
 }
 
 .notice:first-of-type,
@@ -2691,7 +2691,7 @@ watch(
 .ticket-content {
   margin: 6px 0 0;
   font-size: 16px;
-  color: #2f3742;
+  color: var(--text);
   line-height: 1.56;
 }
 

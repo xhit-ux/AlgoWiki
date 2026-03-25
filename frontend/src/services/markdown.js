@@ -6,10 +6,11 @@ const md = new MarkdownIt({
   linkify: true,
   breaks: true,
   highlight: (str, lang) => {
-    if (lang && hljs.getLanguage(lang)) {
-      return `<pre><code class=\"hljs\">${hljs.highlight(str, { language: lang }).value}</code></pre>`;
+    const normalizedLang = String(lang || "").trim().toLowerCase();
+    if (normalizedLang && hljs.getLanguage(normalizedLang)) {
+      return `<pre data-language="${md.utils.escapeHtml(normalizedLang)}"><code class=\"hljs language-${md.utils.escapeHtml(normalizedLang)}\">${hljs.highlight(str, { language: normalizedLang }).value}</code></pre>`;
     }
-    return `<pre><code class=\"hljs\">${md.utils.escapeHtml(str)}</code></pre>`;
+    return `<pre data-language="text"><code class=\"hljs language-text\">${md.utils.escapeHtml(str)}</code></pre>`;
   },
 });
 

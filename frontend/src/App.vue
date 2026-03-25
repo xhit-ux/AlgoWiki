@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="`app-shell--${theme.currentTheme}`">
     <TopNav />
     <ToastStack />
     <main class="page-shell" :class="{ 'page-shell--flush': isHomeLayout }">
@@ -23,12 +23,15 @@ import ToastStack from "./components/ToastStack.vue";
 import { useAnnouncementPopup } from "./composables/useAnnouncementPopup";
 import { useScrollGradientTheme } from "./composables/useScrollGradientTheme";
 import { useAuthStore } from "./stores/auth";
+import { useThemeStore } from "./stores/theme";
 
 const route = useRoute();
 const auth = useAuthStore();
+const theme = useThemeStore();
 const isHomeLayout = computed(() => route.name === "home");
 const { showAnnouncement, activeAnnouncement, dismissAnnouncement } = useAnnouncementPopup(auth);
 
+theme.init();
 useScrollGradientTheme();
 
 function handleInvalidToken() {

@@ -281,7 +281,7 @@ onMounted(async () => {
 <style scoped>
 .home-redesign {
   width: 100%;
-  background: #f5f5f7;
+  background: var(--surface-page);
 }
 
 .home-inner {
@@ -306,18 +306,19 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
-  color: #516174;
-  background: rgba(217, 222, 230, 0.58);
+  color: var(--text-soft);
+  background: var(--surface-chip);
+  border: 1px solid var(--panel-border);
 }
 
 .hero-title {
   margin-top: 18px;
-  font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+  font-family: var(--font-display);
   font-size: clamp(46px, 8.4vw, 124px);
   line-height: 0.96;
   letter-spacing: -0.03em;
   font-weight: 700;
-  color: #1a1a22;
+  color: var(--text-strong);
 }
 
 .hero-subtitle {
@@ -326,7 +327,7 @@ onMounted(async () => {
   font-size: clamp(16px, 1.8vw, 34px);
   font-weight: 500;
   line-height: 1.34;
-  color: #738092;
+  color: var(--text-quiet);
 }
 
 .feature-grid {
@@ -337,16 +338,16 @@ onMounted(async () => {
 }
 
 .feature-card {
-  border-radius: clamp(24px, 2.4vw, 38px);
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.74);
-  box-shadow: 0 18px 40px rgba(23, 33, 52, 0.07);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--card-shadow);
   transition: transform 260ms ease, box-shadow 260ms ease;
 }
 
 .feature-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 24px 44px rgba(23, 33, 52, 0.1);
+  box-shadow: var(--card-shadow-hover);
 }
 
 .feature-card--main {
@@ -364,7 +365,7 @@ onMounted(async () => {
   width: 300px;
   height: 300px;
   border-radius: 50%;
-  background: rgba(80, 146, 255, 0.1);
+  background: var(--surface-highlight);
   filter: blur(24px);
 }
 
@@ -376,7 +377,7 @@ onMounted(async () => {
 
 .feature-card--main p {
   margin: 10px 0 0;
-  color: #707d90;
+  color: var(--text-quiet);
   font-size: clamp(16px, 1.25vw, 22px);
 }
 
@@ -393,18 +394,17 @@ onMounted(async () => {
   border: 0;
   border-radius: 999px;
   padding: 10px 20px;
-  background: #0071e3;
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--accent-contrast);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease;
+  box-shadow: var(--accent-shadow);
 }
 
 .team-manage-btn:hover {
-  background: #0077ed;
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(0, 113, 227, 0.24);
 }
 
 .team-editor {
@@ -415,29 +415,30 @@ onMounted(async () => {
 }
 
 .team-input {
-  border: 1px solid rgba(146, 160, 184, 0.32);
+  border: 1px solid var(--input-border);
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 14px;
-  background: rgba(245, 247, 251, 0.94);
-  color: #243042;
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 .team-input:focus {
   outline: none;
-  border-color: rgba(0, 113, 227, 0.5);
-  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--input-focus);
 }
 
 .team-submit-btn {
   border: 0;
   border-radius: 12px;
-  background: linear-gradient(135deg, #0071e3, #5a73ff);
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--accent-contrast);
   padding: 10px 16px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: var(--accent-shadow);
 }
 
 .team-submit-btn:disabled {
@@ -453,22 +454,22 @@ onMounted(async () => {
 }
 
 .team-member-card {
-  border-radius: 18px;
-  border: 1px solid rgba(188, 198, 216, 0.36);
-  background: rgba(255, 255, 255, 0.75);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--panel-border-strong);
+  background: var(--surface-strong);
   padding: 14px 10px 12px;
   display: grid;
   justify-items: center;
   gap: 10px;
   text-decoration: none;
-  color: #1a1f2f;
+  color: var(--text-strong);
   transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
 }
 
 .team-member-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(0, 113, 227, 0.38);
-  box-shadow: 0 14px 26px rgba(21, 32, 52, 0.11);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: var(--shadow-md);
 }
 
 .team-avatar {
@@ -476,8 +477,8 @@ onMounted(async () => {
   height: 62px;
   border-radius: 999px;
   object-fit: cover;
-  border: 2px solid rgba(120, 142, 176, 0.2);
-  background: #e8edf4;
+  border: 2px solid var(--panel-border);
+  background: var(--surface-soft);
 }
 
 .team-id {
@@ -510,8 +511,8 @@ onMounted(async () => {
 
 .feature-card--support:hover {
   transform: translateY(-3px);
-  box-shadow: 0 22px 40px rgba(23, 33, 52, 0.12);
-  border-color: rgba(0, 113, 227, 0.22);
+  box-shadow: var(--card-shadow-hover);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .support-chip {
@@ -520,8 +521,8 @@ onMounted(async () => {
   gap: 8px;
   border-radius: 999px;
   padding: 6px 12px;
-  background: #fff2e6;
-  color: #f06a15;
+  background: var(--surface-warning);
+  color: var(--surface-warning-text);
   font-size: 12px;
   font-weight: 600;
 }
@@ -539,7 +540,7 @@ onMounted(async () => {
 
 .feature-card--support p {
   margin: 0;
-  color: #66758c;
+  color: var(--text-soft);
   font-size: clamp(15px, 0.95vw, 17px);
   line-height: 1.5;
 }
@@ -549,8 +550,8 @@ onMounted(async () => {
   width: 100%;
   border-radius: 999px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, #14161d, #1f212b);
-  color: #fff;
+  background: var(--accent-gradient);
+  color: var(--accent-contrast);
   font-size: clamp(15px, 0.9vw, 17px);
   font-weight: 600;
   text-decoration: none;
@@ -562,8 +563,8 @@ onMounted(async () => {
 }
 
 .feature-card--support:hover .support-btn {
-  filter: brightness(1.08);
-  box-shadow: 0 16px 28px rgba(13, 16, 24, 0.22);
+  filter: brightness(1.04);
+  box-shadow: var(--accent-shadow);
 }
 
 .support-btn:active {
@@ -579,7 +580,7 @@ onMounted(async () => {
 .support-btn-icon svg {
   width: 100%;
   height: 100%;
-  fill: #ffffff;
+  fill: currentColor;
 }
 
 .announcement-board {
@@ -603,7 +604,7 @@ onMounted(async () => {
 .view-all {
   border: 0;
   background: transparent;
-  color: #0071e3;
+  color: var(--accent);
   font-size: clamp(16px, 1vw, 18px);
   font-weight: 600;
   cursor: pointer;
@@ -619,10 +620,10 @@ onMounted(async () => {
 }
 
 .announcement-item {
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  box-shadow: 0 12px 30px rgba(24, 28, 35, 0.065);
+  border-radius: var(--radius-lg);
+  background: var(--surface-strong);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-sm);
   padding: 14px 16px;
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr) 26px;
@@ -633,8 +634,8 @@ onMounted(async () => {
 
 .announcement-item:hover {
   transform: translateY(-2px);
-  box-shadow: 0 20px 34px rgba(24, 28, 35, 0.1);
-  border-color: rgba(0, 113, 227, 0.18);
+  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .item-side {
@@ -650,36 +651,36 @@ onMounted(async () => {
   line-height: 1;
   letter-spacing: 0.06em;
   font-weight: 700;
-  color: #2a6edf;
-  background: rgba(42, 110, 223, 0.18);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .item-tag--update {
-  color: #3f4f66;
-  background: rgba(151, 163, 181, 0.2);
+  color: var(--text-soft);
+  background: var(--label-bg);
 }
 
 .item-date {
-  color: #8d99ac;
+  color: var(--label-text);
   font-size: 14px;
   line-height: 1.35;
 }
 
 .item-main h3 {
   margin: 0;
-  color: #141d2c;
+  color: var(--text-strong);
   font-size: clamp(20px, 1.45vw, 28px);
   line-height: 1.2;
   transition: color 220ms ease;
 }
 
 .announcement-item:hover .item-main h3 {
-  color: #0071e3;
+  color: var(--accent);
 }
 
 .item-main p {
   margin: 6px 0 10px;
-  color: #5f6f86;
+  color: var(--text-soft);
   font-size: clamp(15px, 1vw, 18px);
   line-height: 1.5;
 }
@@ -688,19 +689,19 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #8d99ac;
+  color: var(--label-text);
   font-size: 14px;
 }
 
 .item-meta-key {
   border-radius: 8px;
   padding: 1px 8px;
-  background: rgba(141, 153, 172, 0.18);
+  background: var(--label-bg);
 }
 
 .item-arrow {
   justify-self: end;
-  color: #0071e3;
+  color: var(--accent);
   font-size: 34px;
   line-height: 1;
   opacity: 0;
@@ -715,11 +716,11 @@ onMounted(async () => {
 
 .empty-state {
   margin: 0;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--panel-border);
   padding: 18px;
-  color: #748299;
+  color: var(--text-quiet);
 }
 
 @keyframes fade-in-up {
@@ -783,7 +784,7 @@ onMounted(async () => {
   }
 
   .feature-card {
-    border-radius: 24px;
+    border-radius: var(--radius-lg);
   }
 
   .feature-card--main {
@@ -918,7 +919,7 @@ onMounted(async () => {
 
   .team-member-card {
     padding: 12px 8px 10px;
-    border-radius: 16px;
+    border-radius: var(--radius-md);
   }
 
   .team-avatar {
@@ -937,7 +938,7 @@ onMounted(async () => {
   }
 
   .announcement-item {
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
     padding: 12px;
   }
 

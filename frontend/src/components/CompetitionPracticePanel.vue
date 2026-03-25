@@ -463,7 +463,7 @@ onMounted(async () => {
 
 .practice-filter-block label {
   font-size: 13px;
-  color: #6a7486;
+  color: var(--text-quiet);
 }
 
 .chips,
@@ -475,7 +475,7 @@ onMounted(async () => {
 }
 
 .practice-source-link {
-  color: #2f66ff;
+  color: var(--link);
   text-decoration: underline;
   word-break: break-word;
 }
@@ -515,14 +515,26 @@ onMounted(async () => {
 
 .practice-table th,
 .practice-table td {
-  border: 1px solid rgba(17, 24, 39, 0.12);
+  border: 1px solid var(--hairline-strong);
   padding: 8px 10px;
   vertical-align: top;
 }
 
 .practice-table thead th {
   text-align: left;
-  background: rgba(244, 247, 255, 0.92);
+  background: var(--table-head-bg);
+}
+
+.practice-table tbody tr:nth-child(odd) {
+  background: var(--content-table-row);
+}
+
+.practice-table tbody tr:nth-child(even) {
+  background: var(--content-table-row-alt);
+}
+
+.practice-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .practice-official-cell {
@@ -537,9 +549,9 @@ onMounted(async () => {
 }
 
 .review-row {
-  border: 1px solid rgba(17, 24, 39, 0.08);
+  border: 1px solid var(--panel-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--surface);
   padding: 12px;
   display: grid;
   gap: 8px;
@@ -549,9 +561,13 @@ onMounted(async () => {
   margin: 0;
   padding: 10px;
   border-radius: 10px;
-  border: 1px solid rgba(17, 24, 39, 0.1);
-  background: rgba(246, 248, 255, 0.9);
+  border: 1px solid var(--content-code-border);
+  background: linear-gradient(180deg, var(--content-code-bg-top), var(--content-code-bg));
+  color: var(--content-code-text);
+  font-family: var(--font-mono);
+  box-shadow: var(--content-code-shadow);
   white-space: pre-wrap;
+  line-height: 1.6;
 }
 
 @media (max-width: 1100px) {
@@ -605,9 +621,9 @@ onMounted(async () => {
     display: grid;
     gap: 8px;
     padding: 12px;
-    border: 1px solid rgba(17, 24, 39, 0.08);
+    border: 1px solid var(--panel-border);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.72);
+    background: var(--surface-strong);
   }
 
   .practice-table td {
@@ -622,7 +638,7 @@ onMounted(async () => {
     content: attr(data-label);
     font-size: 12px;
     font-weight: 600;
-    color: #6a7486;
+    color: var(--text-quiet);
   }
 
   .practice-official-cell {

@@ -18,6 +18,30 @@
       </form>
 
       <div class="actions">
+        <div class="theme-anchor">
+          <button class="theme-toggle" @click="toggleThemePanel" type="button">
+            <span class="theme-toggle-swatch" :class="`theme-toggle-swatch--${theme.currentTheme}`"></span>
+            <span class="theme-toggle-label">{{ activeThemeLabel }}</span>
+          </button>
+          <Transition name="drop">
+            <div v-if="showThemePanel" class="theme-panel">
+              <button
+                v-for="item in themeOptions"
+                :key="item.id"
+                type="button"
+                class="theme-option"
+                :class="{ 'theme-option--active': item.id === theme.currentTheme }"
+                @click="applyTheme(item.id)"
+              >
+                <span class="theme-option-swatch" :class="`theme-option-swatch--${item.id}`"></span>
+                <span class="theme-option-copy">
+                  <strong>{{ item.label }}</strong>
+                  <small>{{ item.name }}</small>
+                </span>
+              </button>
+            </div>
+          </Transition>
+        </div>
         <RouterLink v-if="!auth.isAuthenticated" class="auth-pill" :to="{ name: 'auth' }">登录</RouterLink>
 
         <template v-else>
@@ -70,6 +94,21 @@
         <form class="mobile-search" @submit.prevent="submitSearch">
           <input class="search-input" v-model="searchKeyword" placeholder="搜索" />
         </form>
+        <div class="mobile-theme-group">
+          <span class="mobile-theme-label">切换主题</span>
+          <div class="mobile-theme-options">
+            <button
+              v-for="item in themeOptions"
+              :key="`mobile-theme-${item.id}`"
+              type="button"
+              class="mobile-theme-btn"
+              :class="{ 'mobile-theme-btn--active': item.id === theme.currentTheme }"
+              @click="applyTheme(item.id)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+        </div>
         <RouterLink class="mobile-link" v-for="item in primaryNav" :key="item.name" :to="item.to" @click="showMobileMenu = false">
           {{ item.name }}
         </RouterLink>
@@ -116,10 +155,12 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 
 import api from "../services/api";
 import { useAuthStore } from "../stores/auth";
+import { useThemeStore } from "../stores/theme";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const theme = useThemeStore();
 
 const showMobileMenu = ref(false);
 const searchKeyword = ref(typeof route.query.search === "string" ? route.query.search : "");
@@ -128,7 +169,11 @@ const loadingNotifications = ref(false);
 const unreadCount = ref(0);
 const showNoticePanel = ref(false);
 const showUserPanel = ref(false);
+const showThemePanel = ref(false);
 let unreadTimer = null;
+
+const themeOptions = computed(() => theme.options);
+const activeThemeLabel = computed(() => theme.activeTheme?.label || "Theme");
 
 const primaryNav = computed(() => {
   const nav = [
@@ -147,6 +192,7 @@ const primaryNav = computed(() => {
 });
 
 function toggleMobileMenu() {
+  closeThemePanel();
   showMobileMenu.value = !showMobileMenu.value;
 }
 
@@ -158,9 +204,25 @@ function closeUserPanel() {
   showUserPanel.value = false;
 }
 
+function closeThemePanel() {
+  showThemePanel.value = false;
+}
+
 function toggleUserPanel() {
   showNoticePanel.value = false;
+  closeThemePanel();
   showUserPanel.value = !showUserPanel.value;
+}
+
+function toggleThemePanel() {
+  closeNoticePanel();
+  closeUserPanel();
+  showThemePanel.value = !showThemePanel.value;
+}
+
+function applyTheme(themeId) {
+  theme.setTheme(themeId);
+  closeThemePanel();
 }
 
 async function refreshUnreadCount() {
@@ -236,6 +298,7 @@ async function toggleNoticePanel() {
     return;
   }
   showUserPanel.value = false;
+  closeThemePanel();
   showNoticePanel.value = !showNoticePanel.value;
   if (showNoticePanel.value) {
     await loadNotifications();
@@ -297,6 +360,7 @@ function handleDocumentClick(event) {
   if (!target.closest(".actions")) {
     closeNoticePanel();
     closeUserPanel();
+    closeThemePanel();
   }
 }
 
@@ -306,6 +370,7 @@ watch(
     showMobileMenu.value = false;
     closeNoticePanel();
     closeUserPanel();
+    closeThemePanel();
     searchKeyword.value = typeof route.query.search === "string" ? route.query.search : "";
   }
 );
@@ -339,7 +404,7 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 30;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--nav-bg);
   backdrop-filter: blur(16px) saturate(1.25);
   border-bottom: 1px solid var(--hairline);
 }
@@ -360,9 +425,9 @@ onBeforeUnmount(() => {
   display: none;
   width: 34px;
   height: 34px;
-  border: 0;
+  border: 1px solid var(--nav-pill-border);
   border-radius: 9px;
-  background: rgba(238, 245, 255, 0.8);
+  background: var(--surface-soft);
   padding: 6px 7px;
 }
 
@@ -370,16 +435,17 @@ onBeforeUnmount(() => {
   display: block;
   height: 2px;
   margin: 4px 0;
-  background: #333;
+  background: var(--text);
 }
 
 .brand {
-  font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: clamp(38px, 2.7vw, 46px);
   line-height: 1;
   white-space: nowrap;
   min-width: 0;
+  color: var(--text-strong);
 }
 
 .desktop-nav {
@@ -399,16 +465,16 @@ onBeforeUnmount(() => {
 .mini-topic {
   font-size: 14px;
   font-weight: 500;
-  color: var(--muted);
+  color: var(--nav-link);
   white-space: nowrap;
 }
 
 .mini-topic-link:hover {
-  color: #4f8fff;
+  color: var(--accent);
 }
 
 .nav-link.router-link-active {
-  color: var(--accent);
+  color: var(--nav-link-active);
 }
 
 .search {
@@ -420,10 +486,11 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 38px;
   border-radius: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.07);
-  background: rgba(245, 246, 250, 0.92);
+  border: 1px solid var(--search-border);
+  background: var(--search-bg);
   padding: 0 14px;
   font-size: 14px;
+  color: var(--text);
 }
 
 .actions {
@@ -434,14 +501,118 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.theme-anchor {
+  position: relative;
+}
+
+.theme-toggle,
 .auth-pill {
-  border: 1px solid rgba(0, 0, 0, 0.58);
+  border: 1px solid var(--nav-pill-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: none;
+  background: var(--nav-pill-bg);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-sm);
   padding: 8px 18px;
   font-size: 14px;
   white-space: nowrap;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.theme-toggle-swatch,
+.theme-option-swatch {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 17, 17, 0.18);
+  flex: 0 0 auto;
+}
+
+.theme-toggle-swatch--modern,
+.theme-option-swatch--modern {
+  background: linear-gradient(135deg, #7c5cff 0%, #4b8dff 100%);
+}
+
+.theme-toggle-swatch--academic,
+.theme-option-swatch--academic {
+  background: linear-gradient(135deg, #111111 0%, #8a6f50 100%);
+}
+
+.theme-toggle-swatch--geek,
+.theme-option-swatch--geek {
+  background: linear-gradient(135deg, #ffe45c 0%, #ffca28 100%);
+}
+
+.theme-toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.theme-panel {
+  position: absolute;
+  right: 0;
+  top: 48px;
+  width: 240px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-md);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  z-index: 36;
+}
+
+.theme-option {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  padding: 10px 11px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.theme-option:hover {
+  transform: translateY(-1px);
+  border-color: var(--hairline-strong);
+  background: var(--surface-soft);
+}
+
+.theme-option--active {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-strong));
+}
+
+.theme-option-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.theme-option-copy strong {
+  font-size: 13px;
+  color: var(--text-strong);
+}
+
+.theme-option-copy small {
+  font-size: 11px;
+  color: var(--text-quiet);
 }
 
 .user-trigger {
@@ -452,9 +623,10 @@ onBeforeUnmount(() => {
 }
 
 .notify-toggle {
-  border: 1px solid rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--nav-pill-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--nav-pill-bg);
+  color: var(--text-strong);
   padding: 8px 12px;
   font-size: 13px;
   display: inline-flex;
@@ -481,9 +653,9 @@ onBeforeUnmount(() => {
   width: min(360px, calc(100vw - 28px));
   max-height: 420px;
   overflow: auto;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--panel-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--surface-overlay);
   box-shadow: var(--shadow-md);
   padding: 10px;
   display: grid;
@@ -505,9 +677,9 @@ onBeforeUnmount(() => {
 }
 
 .notify-item {
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--panel-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface-strong);
   padding: 9px;
   text-align: left;
   display: grid;
@@ -515,29 +687,29 @@ onBeforeUnmount(() => {
 }
 
 .notify-item--unread {
-  border-color: rgba(69, 128, 255, 0.35);
-  background: rgba(239, 246, 255, 0.9);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-strong));
 }
 
 .notify-title {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2630;
+  color: var(--text-strong);
 }
 
 .notify-content {
   font-size: 12px;
-  color: #546071;
+  color: var(--text-soft);
 }
 
 .notify-time {
   font-size: 11px;
-  color: #7b8798;
+  color: var(--text-quiet);
 }
 
 .notify-empty {
   font-size: 12px;
-  color: #7a8290;
+  color: var(--text-quiet);
   margin: 2px 0;
 }
 
@@ -546,9 +718,9 @@ onBeforeUnmount(() => {
   right: 0;
   top: 44px;
   width: 232px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--panel-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--surface-overlay);
   box-shadow: var(--shadow-md);
   padding: 10px;
   display: grid;
@@ -565,7 +737,7 @@ onBeforeUnmount(() => {
 .user-meta {
   margin: 0;
   font-size: 13px;
-  color: #5f6a79;
+  color: var(--text-soft);
 }
 
 .user-actions {
@@ -577,6 +749,42 @@ onBeforeUnmount(() => {
 
 .mobile-panel {
   display: none;
+}
+
+.mobile-theme-group {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.mobile-theme-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-quiet);
+}
+
+.mobile-theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mobile-theme-btn {
+  border: 1px solid var(--nav-pill-border);
+  border-radius: 999px;
+  background: var(--nav-pill-bg);
+  color: var(--text-strong);
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mobile-theme-btn--active {
+  background: var(--accent-gradient);
+  color: var(--accent-contrast);
+  border-color: transparent;
 }
 
 @media (max-width: 1180px) {
@@ -638,7 +846,7 @@ onBeforeUnmount(() => {
     display: grid;
     gap: 6px;
     padding: 10px 12px 12px;
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--surface-overlay);
     box-shadow: var(--shadow-sm);
     border-top: 1px solid var(--hairline);
     max-height: calc(100vh - 62px);
@@ -651,21 +859,21 @@ onBeforeUnmount(() => {
 
   .mobile-link {
     font-size: 14px;
-    color: #252a33;
+    color: var(--text-strong);
     padding: 12px 10px;
     border-radius: 12px;
-    background: rgba(244, 248, 255, 0.85);
+    background: var(--surface-soft);
   }
 
   .mobile-link--section {
-    color: #4f8fff;
+    color: var(--accent);
     padding-top: 4px;
     padding-bottom: 4px;
   }
 
   .mobile-link--accent {
     color: var(--accent);
-    background: rgba(124, 92, 255, 0.12);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
     font-weight: 600;
   }
 }
@@ -687,6 +895,16 @@ onBeforeUnmount(() => {
     min-width: 42px;
     padding: 7px 9px;
     justify-content: center;
+  }
+
+  .theme-toggle {
+    min-width: 42px;
+    padding: 7px 9px;
+    justify-content: center;
+  }
+
+  .theme-toggle-label {
+    display: none;
   }
 
   .brand {

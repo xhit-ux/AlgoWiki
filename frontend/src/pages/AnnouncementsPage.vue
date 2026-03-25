@@ -137,6 +137,8 @@ onMounted(async () => {
   display: grid;
   gap: 8px;
   margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .announcement-card-head h2 {
@@ -148,16 +150,45 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 16px;
-  color: #6a7486;
+  color: var(--text-quiet);
   font-size: 14px;
 }
 
+.announcement-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--hairline);
+}
+
 .announcement-markdown {
-  color: #1f2532;
+  color: var(--text);
+  font-size: clamp(1.02rem, 0.98rem + 0.18vw, 1.1rem);
 }
 
 .announcement-markdown :deep(p:first-child) {
   margin-top: 0;
+}
+
+:global(html[data-theme="academic"]) .announcement-card {
+  background: var(--surface-strong);
+}
+
+:global(html[data-theme="academic"]) .announcement-markdown {
+  font-family: var(--font-reading);
+}
+
+:global(html[data-theme="geek"]) .announcement-card,
+:global(html[data-theme="geek"]) .announcement-meta span {
+  border-width: 2px;
+}
+
+:global(html[data-theme="geek"]) .announcement-card-head h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 @media (max-width: 760px) {

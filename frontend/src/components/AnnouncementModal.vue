@@ -39,14 +39,14 @@ const htmlContent = computed(() => renderMarkdown(props.announcement?.content_md
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(14, 20, 33, 0.42);
+  background: color-mix(in srgb, var(--text-strong) 26%, transparent);
 }
 
 .modal {
   max-width: 780px;
   width: 100%;
   padding: 20px;
-  box-shadow: 0 20px 44px rgba(10, 18, 32, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .modal-head {

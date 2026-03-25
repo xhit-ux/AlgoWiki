@@ -73,14 +73,15 @@
           <h1>{{ article.title }}</h1>
           <div class="article-actions">
             <span class="pill">{{ article.category_name }}</span>
-            <button v-if="auth.isAuthenticated" class="btn" @click="toggleStar">
+            <span v-if="isDemoArticle" class="pill article-demo-pill">开发环境示例</span>
+            <button v-if="auth.isAuthenticated && !isDemoArticle" class="btn" @click="toggleStar">
               {{ article.is_starred ? "取消收藏" : "收藏" }} ({{ article.star_count }})
             </button>
-            <button v-if="auth.isAuthenticated" class="btn" @click="openEditor">
+            <button v-if="auth.isAuthenticated && !isDemoArticle" class="btn" @click="openEditor">
               {{ canModerateArticle ? "编辑条目" : "修改条目" }}
             </button>
             <button
-              v-if="canDeleteArticle"
+              v-if="canDeleteArticle && !isDemoArticle"
               class="btn"
               :disabled="deletingArticle"
               @click="removeArticle"
@@ -88,7 +89,7 @@
               {{ deletingArticle ? "删除中..." : "删除条目" }}
             </button>
             <button
-              v-if="canModerateArticle && article.status !== 'published'"
+              v-if="canModerateArticle && article.status !== 'published' && !isDemoArticle"
               class="btn"
               @click="publishArticle"
             >
@@ -98,6 +99,10 @@
         </header>
 
         <p class="meta">作者 {{ article.author.username }} · 更新于 {{ formatTime(article.updated_at) }}</p>
+        <p v-if="article.summary" class="article-summary">{{ article.summary }}</p>
+        <div v-if="isDemoArticle" class="article-demo-note">
+          当前正文为本地验收用演示内容，仅在开发环境兜底展示，不会写入正式站点。
+        </div>
         <section class="markdown article-markdown" v-html="renderedHtml"></section>
       </article>
 
@@ -115,7 +120,7 @@
                   <span v-if="item.parent" class="reply-tag">回复 #{{ item.parent }}</span>
                   <span v-if="item.status === 'pending'" class="reply-tag">待审核</span>
                 </div>
-                <div class="comment-tools" v-if="auth.isAuthenticated">
+                <div class="comment-tools" v-if="auth.isAuthenticated && !isDemoArticle">
                   <button class="btn btn-mini" v-if="item.status === 'visible'" @click="startReply(item)">回复</button>
                   <button
                     class="btn btn-mini"
@@ -131,7 +136,7 @@
             </article>
             <p v-if="!comments.length" class="meta">暂无评论</p>
 
-            <div v-if="auth.isAuthenticated" class="comment-form">
+            <div v-if="auth.isAuthenticated && !isDemoArticle" class="comment-form">
               <p class="meta" v-if="replyTarget">
                 当前回复：#{{ replyTarget.id }} {{ replyTarget.author.username }}
                 <button class="btn btn-mini" @click="cancelReply">取消回复</button>
@@ -141,6 +146,7 @@
                 {{ submittingComment ? "提交中..." : replyTarget ? "提交回复" : "提交评论" }}
               </button>
             </div>
+            <p v-else-if="isDemoArticle" class="meta">演示文章的评论区为只读样本，用于本地验收布局。</p>
             <p v-else class="meta">登录后可发表评论。</p>
           </section>
         </div>
@@ -164,6 +170,10 @@ const props = defineProps({
   id: {
     type: [String, Number],
     default: "",
+  },
+  articleData: {
+    type: Object,
+    default: null,
   },
   embedded: {
     type: Boolean,
@@ -207,6 +217,7 @@ const editForm = reactive({
 const canModerateArticle = computed(() => Boolean(article.value?.can_edit));
 const canDeleteArticle = computed(() => auth.isManager && Boolean(article.value?.id));
 const directPublishEdit = computed(() => auth.isManager && canModerateArticle.value);
+const isDemoArticle = computed(() => Boolean(article.value?.__demo));
 const replyTarget = computed(() =>
   comments.value.find((item) => item.id === replyingToCommentId.value) || null
 );
@@ -396,18 +407,43 @@ function formatTime(value) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function applyArticleData(data) {
+  if (!data) {
+    article.value = null;
+    comments.value = [];
+    renderedHtml.value = "";
+    tocTree.value = [];
+    tocExpandedIds.value = new Set();
+    syncEditForm(null);
+    return;
+  }
+  article.value = data;
+  buildRenderedContent(data.content_md);
+  syncEditForm(data);
+  if (data.__demo) {
+    comments.value = Array.isArray(data.demo_comments) ? data.demo_comments : [];
+  }
+}
+
 async function loadArticle() {
   const id = articleId.value;
   if (!id) {
-    article.value = null;
+    applyArticleData(props.articleData);
     return;
+  }
+  if (props.articleData && String(props.articleData.id) === String(id)) {
+    applyArticleData(props.articleData);
+    if (props.articleData.__demo) {
+      return;
+    }
   }
   try {
     const { data } = await api.get(`/articles/${id}/`);
-    article.value = data;
-    buildRenderedContent(data.content_md);
-    syncEditForm(data);
+    applyArticleData(data);
   } catch (error) {
+    if (props.articleData && String(props.articleData.id) === String(id)) {
+      return;
+    }
     ui.error(getErrorText(error, "条目加载失败"));
   }
 }
@@ -422,6 +458,10 @@ async function loadComments() {
   const id = articleId.value;
   if (!id) {
     comments.value = [];
+    return;
+  }
+  if (props.articleData?.__demo) {
+    comments.value = Array.isArray(props.articleData.demo_comments) ? props.articleData.demo_comments : [];
     return;
   }
   try {
@@ -451,7 +491,7 @@ function cancelReply() {
 }
 
 async function toggleStar() {
-  if (!article.value) return;
+  if (!article.value || isDemoArticle.value) return;
 
   try {
     if (article.value.is_starred) {
@@ -471,7 +511,7 @@ async function toggleStar() {
 }
 
 async function publishArticle() {
-  if (!article.value) return;
+  if (!article.value || isDemoArticle.value) return;
   try {
     await api.post(`/articles/${article.value.id}/publish/`);
     ui.success("文章已发布");
@@ -482,7 +522,7 @@ async function publishArticle() {
 }
 
 async function removeArticle() {
-  if (!article.value || !canDeleteArticle.value || deletingArticle.value) return;
+  if (!article.value || isDemoArticle.value || !canDeleteArticle.value || deletingArticle.value) return;
   if (!window.confirm("确认删除这个条目？删除后不可恢复。")) return;
 
   const currentId = article.value.id;
@@ -510,6 +550,10 @@ function openEditor() {
     ui.info("请先登录后再修改条目");
     return;
   }
+  if (isDemoArticle.value) {
+    ui.info("当前是开发环境演示文章，不能直接修改。");
+    return;
+  }
   if (!article.value) return;
   syncEditForm(article.value);
   editReason.value = "";
@@ -525,7 +569,7 @@ function cancelEditor() {
 }
 
 async function saveArticleEdit() {
-  if (!article.value) return;
+  if (!article.value || isDemoArticle.value) return;
   if (!editForm.title.trim() || !editForm.content_md.trim()) {
     ui.info("请填写标题和正文");
     return;
@@ -561,7 +605,7 @@ async function submitComment() {
     ui.info("请输入评论内容");
     return;
   }
-  if (!article.value) return;
+  if (!article.value || isDemoArticle.value) return;
   submittingComment.value = true;
   try {
     const payload = {
@@ -588,6 +632,7 @@ async function submitComment() {
 }
 
 async function removeComment(comment) {
+  if (isDemoArticle.value) return;
   if (!canDeleteComment(comment)) return;
   if (!window.confirm("确认删除这条评论？")) return;
   deletingCommentId.value = comment.id;
@@ -628,15 +673,18 @@ function getErrorText(error, fallback = "操作失败") {
 async function initPage() {
   showEditor.value = false;
   await loadArticle();
-  await loadComments();
+  if (!isDemoArticle.value) {
+    await loadComments();
+  }
 }
 
 watch(
-  () => articleId.value,
-  async (next, prev) => {
+  () => [articleId.value, props.articleData?.updated_at, props.articleData?.content_md, props.articleData?.id],
+  async (nextTuple, prevTuple) => {
+    const [next] = nextTuple;
+    const [prev] = Array.isArray(prevTuple) ? prevTuple : [];
     if (!next) {
-      article.value = null;
-      comments.value = [];
+      applyArticleData(props.articleData);
       return;
     }
     if (next === prev) return;
@@ -784,9 +832,17 @@ watch(
 
 .toc-item {
   display: block;
-  color: #2d343f;
+  color: var(--text-strong);
   font-size: 15px;
   line-height: 1.35;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.toc-item:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
 }
 
 .toc-row {
@@ -802,7 +858,7 @@ watch(
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #6a7587;
+  color: var(--text-quiet);
   font-size: 13px;
   line-height: 1;
   padding: 0;
@@ -810,7 +866,7 @@ watch(
 }
 
 .toc-toggle:hover {
-  background: rgba(140, 156, 180, 0.15);
+  background: var(--accent-soft);
 }
 
 .toc-toggle--placeholder {
@@ -822,6 +878,14 @@ watch(
   min-width: 0;
   grid-column: 2;
   grid-row: 1;
+}
+
+.article-layout:not(.embedded-mode) .article-main {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: clamp(16px, 2.2vw, 28px);
+  box-shadow: var(--shadow-sm);
 }
 
 .article-header {
@@ -844,18 +908,32 @@ watch(
 
 .article-summary {
   margin: 8px 0 16px;
-  color: #303745;
+  color: var(--text-soft);
   font-size: 18px;
 }
 
+.article-demo-pill {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-strong));
+}
+
+.article-demo-note {
+  margin: 0 0 16px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 36%, transparent);
+  border-radius: calc(var(--radius-sm) + 2px);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-soft));
+  color: var(--text-soft);
+  padding: 10px 12px;
+  font-size: 15px;
+}
+
 .article-markdown {
-  font-size: 19px;
+  font-size: clamp(1.02rem, 0.95rem + 0.3vw, 1.16rem);
 }
 
 .panel-block {
   border: 1px solid var(--hairline);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.54);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   padding: 12px;
   margin-bottom: 12px;
   box-shadow: var(--shadow-sm);
@@ -870,8 +948,11 @@ watch(
 }
 
 .comment {
-  border-top: 1px solid var(--hairline);
-  padding: 8px 0;
+  border: 1px solid var(--hairline);
+  border-radius: calc(var(--radius-sm) + 2px);
+  background: var(--surface-soft);
+  padding: 10px 12px;
+  margin-top: 10px;
 }
 
 .comment-head {
@@ -894,11 +975,11 @@ watch(
 
 .reply-tag {
   margin-left: 6px;
-  color: #5f6d7f;
+  color: var(--text-quiet);
 }
 
 .comment:first-of-type {
-  border-top: 0;
+  margin-top: 0;
 }
 
 .comment p {
@@ -911,6 +992,39 @@ watch(
 .panel-block {
   display: grid;
   gap: 8px;
+}
+
+:global(html[data-theme="academic"]) .article-layout:not(.embedded-mode) .article-main {
+  background: var(--surface-strong);
+  box-shadow: var(--card-shadow);
+}
+
+:global(html[data-theme="academic"]) .toc-item {
+  font-family: var(--font-reading);
+  letter-spacing: 0.01em;
+}
+
+:global(html[data-theme="academic"]) .comment {
+  background: var(--surface-strong);
+}
+
+:global(html[data-theme="geek"]) .article-layout:not(.embedded-mode) .article-main,
+:global(html[data-theme="geek"]) .comment {
+  border-width: 2px;
+}
+
+:global(html[data-theme="geek"]) .article-demo-note {
+  border-width: 2px;
+}
+
+:global(html[data-theme="geek"]) .toc-item,
+:global(html[data-theme="geek"]) .panel-block h3 {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+:global(html[data-theme="geek"]) .comment {
+  box-shadow: var(--shadow-sm);
 }
 
 @media (max-width: 1260px) {
