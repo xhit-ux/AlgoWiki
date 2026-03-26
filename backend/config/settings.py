@@ -249,6 +249,7 @@ AUTH_SECURITY = {
     "LOGIN_LOCK_MINUTES": int(os.getenv("LOGIN_LOCK_MINUTES", "15")),
     "PASSWORD_HISTORY_COUNT": int(os.getenv("PASSWORD_HISTORY_COUNT", "5")),
 }
+REGISTER_CAPTCHA_TTL_SECONDS = int(os.getenv("REGISTER_CAPTCHA_TTL_SECONDS", "600"))
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv("DATA_UPLOAD_MAX_MEMORY_SIZE", str(10 * 1024 * 1024)))
 FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv("FILE_UPLOAD_MAX_MEMORY_SIZE", str(4 * 1024 * 1024)))
@@ -355,9 +356,14 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.AllowAny",
     ),
     "DEFAULT_THROTTLE_RATES": {
-        "login": os.getenv("THROTTLE_LOGIN", "20/hour"),
-        "register": os.getenv("THROTTLE_REGISTER", "10/hour"),
-        "password_change": os.getenv("THROTTLE_PASSWORD_CHANGE", "6/hour"),
+        "login": os.getenv("THROTTLE_LOGIN", "3/min"),
+        "register": os.getenv("THROTTLE_REGISTER", "3/hour"),
+        "register_challenge": os.getenv("THROTTLE_REGISTER_CHALLENGE", "12/min"),
+        "password_change": os.getenv("THROTTLE_PASSWORD_CHANGE", "3/hour"),
+        "profile_update": os.getenv("THROTTLE_PROFILE_UPDATE", "3/min"),
+        "content_create": os.getenv("THROTTLE_CONTENT_CREATE", "3/min"),
+        "content_update": os.getenv("THROTTLE_CONTENT_UPDATE", "3/min"),
+        "content_delete": os.getenv("THROTTLE_CONTENT_DELETE", "3/min"),
     },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,

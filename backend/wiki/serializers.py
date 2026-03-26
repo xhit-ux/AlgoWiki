@@ -1,9 +1,15 @@
+import random
+import re
+import secrets
 from pathlib import Path
 
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 from rest_framework import serializers
 from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import Throttled
@@ -52,6 +58,90 @@ def can_manage_competition(user):
         and user.is_authenticated
         and user.role in {User.Role.SCHOOL, User.Role.ADMIN, User.Role.SUPERADMIN}
     )
+
+
+REGISTER_CAPTCHA_SIGNING_SALT = "wiki.register.captcha.v1"
+REGISTER_CAPTCHA_INTEGER_RE = re.compile(r"^-?\d+$")
+
+
+def _build_register_captcha_digest(nonce: str, answer: int) -> str:
+    return salted_hmac(
+        REGISTER_CAPTCHA_SIGNING_SALT,
+        f"{nonce}:{answer}",
+        secret=settings.SECRET_KEY,
+    ).hexdigest()
+
+
+def build_register_challenge():
+    challenge_kind = random.choice(("add", "sub", "mul"))
+    if challenge_kind == "add":
+        left = random.randint(3, 25)
+        right = random.randint(2, 20)
+        symbol = "+"
+        answer = left + right
+    elif challenge_kind == "sub":
+        left = random.randint(8, 30)
+        right = random.randint(2, left - 1)
+        symbol = "-"
+        answer = left - right
+    else:
+        left = random.randint(2, 9)
+        right = random.randint(2, 9)
+        symbol = "x"
+        answer = left * right
+
+    nonce = secrets.token_urlsafe(12)
+    token = signing.dumps(
+        {
+            "nonce": nonce,
+            "digest": _build_register_captcha_digest(nonce, answer),
+        },
+        salt=REGISTER_CAPTCHA_SIGNING_SALT,
+        compress=True,
+    )
+    return {
+        "prompt": f"Solve: {left} {symbol} {right} = ?",
+        "token": token,
+        "expires_in_seconds": settings.REGISTER_CAPTCHA_TTL_SECONDS,
+    }
+
+
+def validate_register_challenge(*, token: str, answer, website: str = ""):
+    if str(website or "").strip():
+        raise serializers.ValidationError({"non_field_errors": ["Verification failed."]})
+
+    if not str(token or "").strip():
+        raise serializers.ValidationError({"captcha_token": ["Please refresh the verification challenge."]})
+
+    answer_text = str(answer or "").strip()
+    if not answer_text:
+        raise serializers.ValidationError({"captcha_answer": ["Please enter the verification result."]})
+    if not REGISTER_CAPTCHA_INTEGER_RE.fullmatch(answer_text):
+        raise serializers.ValidationError({"captcha_answer": ["Verification answer must be an integer."]})
+
+    try:
+        payload = signing.loads(
+            token,
+            salt=REGISTER_CAPTCHA_SIGNING_SALT,
+            max_age=settings.REGISTER_CAPTCHA_TTL_SECONDS,
+        )
+    except signing.SignatureExpired as exc:
+        raise serializers.ValidationError(
+            {"captcha_answer": ["Verification expired, please refresh and try again."]}
+        ) from exc
+    except signing.BadSignature as exc:
+        raise serializers.ValidationError(
+            {"captcha_answer": ["Verification failed, please refresh and try again."]}
+        ) from exc
+
+    nonce = str(payload.get("nonce", "")).strip()
+    digest = str(payload.get("digest", "")).strip()
+    if not nonce or not digest:
+        raise serializers.ValidationError({"captcha_answer": ["Verification failed, please refresh and try again."]})
+
+    expected_digest = _build_register_captcha_digest(nonce, int(answer_text))
+    if not secrets.compare_digest(expected_digest, digest):
+        raise serializers.ValidationError({"captcha_answer": ["Verification answer is incorrect."]})
 
 
 class UserPublicSerializer(serializers.ModelSerializer):
@@ -187,10 +277,21 @@ class ImageUploadSerializer(serializers.Serializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
+    captcha_token = serializers.CharField(write_only=True)
+    captcha_answer = serializers.CharField(write_only=True)
+    website = serializers.CharField(write_only=True, required=False, allow_blank=True, default="")
 
     class Meta:
         model = User
-        fields = ["username", "email", "password", "school_name"]
+        fields = [
+            "username",
+            "email",
+            "password",
+            "school_name",
+            "captcha_token",
+            "captcha_answer",
+            "website",
+        ]
 
     def validate_email(self, value):
         email = (value or "").strip()
@@ -209,7 +310,19 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(list(exc.messages))
         return value
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        validate_register_challenge(
+            token=attrs.get("captcha_token", ""),
+            answer=attrs.get("captcha_answer", ""),
+            website=attrs.get("website", ""),
+        )
+        return attrs
+
     def create(self, validated_data):
+        validated_data.pop("captcha_token", None)
+        validated_data.pop("captcha_answer", None)
+        validated_data.pop("website", None)
         password = validated_data.pop("password")
         user = User.objects.create_user(role=User.Role.NORMAL, **validated_data)
         user.set_password(password)

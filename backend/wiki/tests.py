@@ -1,9 +1,11 @@
 import json
+import re
 import tempfile
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -40,12 +42,38 @@ from .competition_calendar import NormalizedCompetitionEvent
 
 class AuthApiTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             username="login_user",
             email="login_user@example.com",
             password="Password123",
             role=User.Role.NORMAL,
         )
+
+    def fetch_register_challenge(self):
+        response = self.client.get("/api/auth/register-challenge/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("prompt", response.data)
+        self.assertIn("token", response.data)
+        return response.data
+
+    def solve_register_challenge(self):
+        challenge = self.fetch_register_challenge()
+        match = re.search(r"(\d+)\s*([+\-x])\s*(\d+)", challenge["prompt"])
+        self.assertIsNotNone(match)
+        left = int(match.group(1))
+        operator = match.group(2)
+        right = int(match.group(3))
+        if operator == "+":
+            answer = left + right
+        elif operator == "-":
+            answer = left - right
+        else:
+            answer = left * right
+        return {
+            "captcha_token": challenge["token"],
+            "captcha_answer": str(answer),
+        }
 
     def test_login_returns_serialized_user_payload(self):
         response = self.client.post(
@@ -88,9 +116,15 @@ class AuthApiTests(APITestCase):
         self.assertTrue(Token.objects.filter(key=second_token).exists())
 
     def test_register_creates_password_history_and_security_log(self):
+        captcha_payload = self.solve_register_challenge()
         response = self.client.post(
             "/api/auth/register/",
-            {"username": "new_user", "email": "new_user@example.com", "password": "StrongPass123!"},
+            {
+                "username": "new_user",
+                "email": "new_user@example.com",
+                "password": "StrongPass123!",
+                **captcha_payload,
+            },
             format="json",
         )
         self.assertEqual(response.status_code, 201)
@@ -105,13 +139,35 @@ class AuthApiTests(APITestCase):
         )
 
     def test_register_rejects_duplicate_email(self):
+        captcha_payload = self.solve_register_challenge()
         response = self.client.post(
             "/api/auth/register/",
-            {"username": "new_user2", "email": "LOGIN_USER@example.com", "password": "StrongPass123!"},
+            {
+                "username": "new_user2",
+                "email": "LOGIN_USER@example.com",
+                "password": "StrongPass123!",
+                **captcha_payload,
+            },
             format="json",
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("email", response.data)
+
+    def test_register_rejects_invalid_captcha_answer(self):
+        challenge = self.fetch_register_challenge()
+        response = self.client.post(
+            "/api/auth/register/",
+            {
+                "username": "captcha_fail_user",
+                "email": "captcha_fail_user@example.com",
+                "password": "StrongPass123!",
+                "captcha_token": challenge["token"],
+                "captcha_answer": "99999",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("captcha_answer", response.data)
 
     def test_error_response_contains_request_id(self):
         response = self.client.post(
@@ -126,6 +182,7 @@ class AuthApiTests(APITestCase):
 
 class AuthSecurityHardeningTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             username="secure_user",
             password="StrongPass123!",
@@ -204,6 +261,87 @@ class AuthSecurityHardeningTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {victim_token.key}")
         me_response = self.client.get("/api/me/")
         self.assertIn(me_response.status_code, (401, 403))
+
+
+class CostControlApiTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.category = Category.objects.create(name="Cost Control", slug="cost-control")
+        self.user = User.objects.create_user(
+            username="cost_user",
+            password="Password123",
+            role=User.Role.NORMAL,
+        )
+        self.user_token = Token.objects.create(user=self.user)
+        self.article = Article.objects.create(
+            title="Cost Article",
+            summary="summary",
+            content_md="body",
+            category=self.category,
+            author=self.user,
+            last_editor=self.user,
+            status=Article.Status.PUBLISHED,
+        )
+        self.question = Question.objects.create(
+            title="Existing Question",
+            content_md="body",
+            author=self.user,
+            category=self.category,
+            status=Question.Status.PENDING,
+        )
+
+    def test_export_endpoints_are_disabled(self):
+        article_pdf = self.client.get(f"/api/articles/{self.article.id}/export-pdf/")
+        article_markdown = self.client.get(f"/api/articles/{self.article.id}/export-markdown-bundle/")
+        collection_pdf = self.client.get("/api/articles/export-collection-pdf/")
+        collection_markdown = self.client.get("/api/articles/export-collection-markdown-bundle/")
+
+        for response in (article_pdf, article_markdown, collection_pdf, collection_markdown):
+            self.assertEqual(response.status_code, 404)
+            self.assertIn("disabled", response.data["detail"].lower())
+
+    def test_login_is_rate_limited(self):
+        responses = [
+            self.client.post(
+                "/api/auth/login/",
+                {"username": "cost_user", "password": "Password123"},
+                format="json",
+            )
+            for _ in range(4)
+        ]
+
+        self.assertEqual([response.status_code for response in responses[:3]], [200, 200, 200])
+        self.assertEqual(responses[3].status_code, 429)
+
+    def test_question_submission_is_rate_limited(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.user_token.key}")
+
+        responses = [
+            self.client.post(
+                "/api/questions/",
+                {"title": f"Q{index}", "content_md": "body", "category": self.category.id},
+                format="json",
+            )
+            for index in range(1, 5)
+        ]
+
+        self.assertEqual([response.status_code for response in responses[:3]], [201, 201, 201])
+        self.assertEqual(responses[3].status_code, 429)
+
+    def test_question_update_is_rate_limited(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.user_token.key}")
+
+        responses = [
+            self.client.patch(
+                f"/api/questions/{self.question.id}/",
+                {"content_md": f"updated {index}"},
+                format="json",
+            )
+            for index in range(1, 5)
+        ]
+
+        self.assertEqual([response.status_code for response in responses[:3]], [200, 200, 200])
+        self.assertEqual(responses[3].status_code, 429)
 
 
 class ImageUploadApiTests(APITestCase):

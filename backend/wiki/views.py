@@ -52,7 +52,16 @@ from .models import (
 )
 from .permissions import AuthenticatedAndNotBanned, AdminOrSuperAdmin, can_moderate_category
 from .security import record_password_history, record_security_event
-from .throttles import LoginRateThrottle, PasswordChangeRateThrottle, RegisterRateThrottle
+from .throttles import (
+    ContentCreateRateThrottle,
+    ContentDeleteRateThrottle,
+    ContentUpdateRateThrottle,
+    LoginRateThrottle,
+    PasswordChangeRateThrottle,
+    ProfileUpdateRateThrottle,
+    RegisterChallengeRateThrottle,
+    RegisterRateThrottle,
+)
 from .serializers import (
     AnnouncementSerializer,
     AnswerSerializer,
@@ -73,6 +82,7 @@ from .serializers import (
     PasswordChangeSerializer,
     QuestionSerializer,
     RegisterSerializer,
+    build_register_challenge,
     RevisionProposalSerializer,
     TrickEntrySerializer,
     SelfSecurityAuditLogSerializer,
@@ -215,6 +225,26 @@ INVALID_EXPORT_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]+')
 MARKDOWN_IMAGE_PATTERN = re.compile(r'!\[[^\]]*]\(([^)\n]+)\)')
 MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)\n]+)\)")
 COMPETITION_CALENDAR_FINISHED_RETENTION_DAYS = 30
+EXPORT_FEATURE_DISABLED_DETAIL = "Export has been disabled to keep cost and abuse risk under control."
+
+
+class ActionThrottleMixin:
+    throttle_action_classes = {}
+    throttle_apply_to_managers = False
+
+    def get_throttles(self):
+        classes = list(getattr(self, "throttle_classes", []))
+        action = getattr(self, "action", "")
+        user = getattr(self.request, "user", None)
+
+        if action and (self.throttle_apply_to_managers or not is_manager(user)):
+            classes.extend(self.throttle_action_classes.get(action, []))
+
+        return [throttle() for throttle in classes]
+
+
+def export_feature_disabled_response():
+    return Response({"detail": EXPORT_FEATURE_DISABLED_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 
 
 def sanitize_export_filename(value: str, fallback: str = "article") -> str:
@@ -499,6 +529,14 @@ class RegisterView(APIView):
         )
 
 
+class RegisterChallengeView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [RegisterChallengeRateThrottle]
+
+    def get(self, request):
+        return Response(build_register_challenge())
+
+
 class LoginView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [LoginRateThrottle]
@@ -536,6 +574,11 @@ class LogoutView(APIView):
 
 class MeView(APIView):
     permission_classes = [AuthenticatedAndNotBanned]
+
+    def get_throttles(self):
+        if self.request.method.upper() == "PATCH":
+            return [ProfileUpdateRateThrottle()]
+        return super().get_throttles()
 
     def get(self, request):
         try:
@@ -762,9 +805,15 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-class ArticleViewSet(viewsets.ModelViewSet):
+class ArticleViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = ArticleSerializer
     queryset = Article.objects.select_related("category", "author", "last_editor").all()
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_permissions(self):
         if self.action in {
@@ -876,6 +925,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], permission_classes=[AllowAny], url_path="export-markdown-bundle")
     def export_markdown_bundle(self, request, pk=None):
+        return export_feature_disabled_response()
         article = self.get_object()
         user = request.user
         is_owner = user.is_authenticated and article.author_id == user.id
@@ -917,6 +967,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], permission_classes=[AllowAny], url_path="export-pdf")
     def export_pdf(self, request, pk=None):
+        return export_feature_disabled_response()
         article = self.get_object()
         user = request.user
         is_owner = user.is_authenticated and article.author_id == user.id
@@ -1147,6 +1198,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
         url_path="export-collection-markdown-bundle",
     )
     def export_collection_markdown_bundle(self, request):
+        return export_feature_disabled_response()
         articles = list(self._export_queryset_for_collection())
         if not articles:
             return Response({"detail": "No articles to export."}, status=status.HTTP_404_NOT_FOUND)
@@ -1201,6 +1253,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
         url_path="export-collection-pdf",
     )
     def export_collection_pdf(self, request):
+        return export_feature_disabled_response()
         articles = list(self._export_queryset_for_collection())
         if not articles:
             return Response({"detail": "No articles to export."}, status=status.HTTP_404_NOT_FOUND)
@@ -1669,9 +1722,15 @@ class ArticleViewSet(viewsets.ModelViewSet):
         )
 
 
-class ArticleCommentViewSet(viewsets.ModelViewSet):
+class ArticleCommentViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = ArticleCommentSerializer
     queryset = ArticleComment.objects.select_related("article", "author", "parent").all()
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_permissions(self):
         if self.action == "bulk_hide":
@@ -2006,11 +2065,17 @@ class ArticleCommentViewSet(viewsets.ModelViewSet):
         )
 
 
-class RevisionProposalViewSet(viewsets.ModelViewSet):
+class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = RevisionProposalSerializer
     queryset = RevisionProposal.objects.select_related("article", "proposer", "reviewer", "article__category").all()
     permission_classes = [AuthenticatedAndNotBanned]
     MAX_PENDING_PER_USER = 5
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -2299,10 +2364,16 @@ class RevisionProposalViewSet(viewsets.ModelViewSet):
         )
 
 
-class IssueTicketViewSet(viewsets.ModelViewSet):
+class IssueTicketViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = IssueTicketSerializer
     queryset = IssueTicket.objects.select_related("author", "assignee", "related_article").all()
     permission_classes = [AuthenticatedAndNotBanned]
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_permissions(self):
         if self.action in {"set_status", "bulk_set_status"}:
@@ -2627,9 +2698,15 @@ class IssueTicketViewSet(viewsets.ModelViewSet):
         )
 
 
-class TrickEntryViewSet(viewsets.ModelViewSet):
+class TrickEntryViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = TrickEntrySerializer
     queryset = TrickEntry.objects.select_related("author").all()
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_permissions(self):
         if self.action in {"list", "retrieve"}:
@@ -2778,9 +2855,15 @@ class TrickEntryViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(entry).data)
 
 
-class QuestionViewSet(viewsets.ModelViewSet):
+class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = QuestionSerializer
     queryset = Question.objects.select_related("author", "category").annotate(answers_count=Count("answers"))
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_permissions(self):
         if self.action in {"approve", "reject", "bulk_moderate"}:
@@ -3093,9 +3176,15 @@ class QuestionViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class AnswerViewSet(viewsets.ModelViewSet):
+class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = AnswerSerializer
     queryset = Answer.objects.select_related("author", "question", "question__author").all()
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_permissions(self):
         if self.action in {"approve", "reject", "bulk_moderate"}:
@@ -3951,7 +4040,7 @@ class CompetitionPracticeLinkViewSet(viewsets.ReadOnlyModelViewSet):
             return schema_outdated_response(exc)
 
 
-class CompetitionPracticeLinkProposalViewSet(viewsets.ModelViewSet):
+class CompetitionPracticeLinkProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = CompetitionPracticeLinkProposalSerializer
     queryset = CompetitionPracticeLinkProposal.objects.select_related(
         "target_entry",
@@ -3959,6 +4048,12 @@ class CompetitionPracticeLinkProposalViewSet(viewsets.ModelViewSet):
         "reviewer",
     ).all()
     permission_classes = [AuthenticatedAndNotBanned]
+    throttle_action_classes = {
+        "create": [ContentCreateRateThrottle],
+        "update": [ContentUpdateRateThrottle],
+        "partial_update": [ContentUpdateRateThrottle],
+        "destroy": [ContentDeleteRateThrottle],
+    }
 
     def get_queryset(self):
         queryset = super().get_queryset()

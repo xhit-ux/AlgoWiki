@@ -28,6 +28,7 @@ from .views import (
     MeView,
     ImageUploadView,
     QuestionViewSet,
+    RegisterChallengeView,
     RegisterView,
     RevisionProposalViewSet,
     SecurityAuditLogViewSet,
@@ -63,6 +64,7 @@ router.register(r"competition-practice-proposals", CompetitionPracticeLinkPropos
 urlpatterns = [
     path("health/", HealthCheckView.as_view(), name="health"),
     path("uploads/image/", ImageUploadView.as_view(), name="upload-image"),
+    path("auth/register-challenge/", RegisterChallengeView.as_view(), name="auth-register-challenge"),
     path("auth/register/", RegisterView.as_view(), name="auth-register"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),

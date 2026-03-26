@@ -8,6 +8,54 @@ const api = axios.create({
   timeout: 15000,
 });
 
+function getRetryAfterSeconds(response) {
+  const raw = response?.headers?.["retry-after"];
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.ceil(seconds);
+  }
+  return null;
+}
+
+function normalizeRateLimitError(error) {
+  const response = error?.response;
+  if (!response || response.status !== 429) {
+    return error;
+  }
+
+  const waitSeconds = getRetryAfterSeconds(response);
+  const requestUrl = String(error?.config?.url || "");
+  let detail = waitSeconds
+    ? `Too many requests. Please retry in ${waitSeconds} seconds.`
+    : "Too many requests. Please retry later.";
+
+  if (requestUrl.includes("/auth/login/")) {
+    detail = waitSeconds
+      ? `Too many login attempts. Please retry in ${waitSeconds} seconds.`
+      : "Too many login attempts. Please retry later.";
+  } else if (requestUrl.includes("/auth/register")) {
+    detail = waitSeconds
+      ? `Too many registration attempts. Please retry in ${waitSeconds} seconds.`
+      : "Too many registration attempts. Please retry later.";
+  }
+
+  if (typeof response.data === "string") {
+    response.data = { detail };
+  } else if (response.data && typeof response.data === "object") {
+    response.data = {
+      ...response.data,
+      detail,
+    };
+  } else {
+    response.data = { detail };
+  }
+
+  if (waitSeconds) {
+    response.data.retry_after_seconds = waitSeconds;
+  }
+  return error;
+}
+
 api.interceptors.request.use((config) => {
   const method = String(config.method || "get").toLowerCase();
   if (OVERRIDDEN_METHODS.has(method)) {
@@ -35,6 +83,10 @@ api.interceptors.response.use(
     if (!config) throw error;
 
     const status = error?.response?.status || 0;
+    if (status === 429) {
+      throw normalizeRateLimitError(error);
+    }
+
     const method = (config.method || "get").toLowerCase();
 
     if (status === 401) {

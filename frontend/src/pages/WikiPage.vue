@@ -93,20 +93,6 @@
           @keyup.enter="applyFilters"
         />
         <button class="btn btn-accent" @click="applyFilters">搜索</button>
-        <button
-          class="btn"
-          :disabled="!chapterArticles.length || exportingChapterPdf"
-          @click="exportCurrentViewPdf"
-        >
-          {{ exportingChapterPdf ? "准备中..." : "导出 PDF" }}
-        </button>
-        <button
-          class="btn"
-          :disabled="!chapterArticles.length || exportingChapterMarkdownBundle"
-          @click="exportCurrentViewMarkdownBundle"
-        >
-          {{ exportingChapterMarkdownBundle ? "导出中..." : "导出 Markdown 包" }}
-        </button>
       </div>
 
       <section v-if="auth.isSchoolOrHigher" class="publish-zone">
@@ -168,8 +154,6 @@ const showPublish = ref(false);
 const syncingRoute = ref(false);
 const fallbackSummary = ref(null);
 const schemaErrorShown = ref(false);
-const exportingChapterPdf = ref(false);
-const exportingChapterMarkdownBundle = ref(false);
 const fallbackNotices = reactive({
   categories: false,
   articles: false,
@@ -572,68 +556,6 @@ async function createArticle() {
     await loadArticles();
   } catch (error) {
     ui.error(getErrorText(error, "条目发布失败"));
-  }
-}
-
-function sanitizeExportName(value, fallback = "wiki-export") {
-  const cleaned = String(value || "")
-    .replace(/[\\/:*?"<>|]+/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
-  return cleaned || fallback;
-}
-
-function downloadBlob(response, fallbackFilename) {
-  const contentType = response?.headers?.["content-type"] || "application/octet-stream";
-  const disposition = response?.headers?.["content-disposition"] || "";
-  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-  const asciiMatch = disposition.match(/filename=\"?([^\";]+)\"?/i);
-  const filenameRaw = utf8Match?.[1] || asciiMatch?.[1] || fallbackFilename;
-  const filename = decodeURIComponent(filenameRaw).trim() || fallbackFilename;
-
-  const blob = new Blob([response.data], { type: contentType });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.URL.revokeObjectURL(url);
-}
-
-async function exportCurrentViewPdf() {
-  if (!chapterArticles.value.length || exportingChapterPdf.value) return;
-  exportingChapterPdf.value = true;
-  try {
-    const response = await api.get("/articles/export-collection-pdf/", {
-      params: buildParams(),
-      responseType: "arraybuffer",
-    });
-    downloadBlob(response, `${sanitizeExportName(currentThemeName.value, "wiki-export")}.pdf`);
-    ui.success("PDF 导出完成");
-  } catch (error) {
-    ui.error(getErrorText(error, "导出 PDF 失败"));
-  } finally {
-    exportingChapterPdf.value = false;
-  }
-}
-
-async function exportCurrentViewMarkdownBundle() {
-  if (!chapterArticles.value.length || exportingChapterMarkdownBundle.value) return;
-  exportingChapterMarkdownBundle.value = true;
-  try {
-    const response = await api.get("/articles/export-collection-markdown-bundle/", {
-      params: buildParams(),
-      responseType: "arraybuffer",
-    });
-    downloadBlob(response, `${sanitizeExportName(currentThemeName.value, "wiki-export")}.zip`);
-    ui.success("Markdown 包导出完成");
-  } catch (error) {
-    ui.error(getErrorText(error, "导出 Markdown 包失败"));
-  } finally {
-    exportingChapterMarkdownBundle.value = false;
   }
 }
 
