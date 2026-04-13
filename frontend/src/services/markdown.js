@@ -114,6 +114,85 @@ const markdownSanitizeConfig = {
   FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "textarea", "select", "option"],
 };
 
+function isEscapedDollar(source, index) {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && source[cursor] === "\\"; cursor -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
+function normalizeLatexWhitespaceInSegment(segment) {
+  let result = "";
+  let index = 0;
+
+  while (index < segment.length) {
+    if (segment[index] !== "$" || isEscapedDollar(segment, index)) {
+      result += segment[index];
+      index += 1;
+      continue;
+    }
+
+    const delimiterLength = segment[index + 1] === "$" && !isEscapedDollar(segment, index + 1) ? 2 : 1;
+    let closingIndex = -1;
+    let cursor = index + delimiterLength;
+
+    while (cursor < segment.length) {
+      if (segment[cursor] !== "$" || isEscapedDollar(segment, cursor)) {
+        cursor += 1;
+        continue;
+      }
+
+      const currentDelimiterLength =
+        segment[cursor + 1] === "$" && !isEscapedDollar(segment, cursor + 1) ? 2 : 1;
+      if (currentDelimiterLength !== delimiterLength) {
+        cursor += currentDelimiterLength;
+        continue;
+      }
+
+      closingIndex = cursor;
+      break;
+    }
+
+    if (closingIndex < 0) {
+      result += segment[index];
+      index += 1;
+      continue;
+    }
+
+    const inner = segment.slice(index + delimiterLength, closingIndex);
+    if (delimiterLength === 1 && inner.includes("\n")) {
+      result += segment.slice(index, closingIndex + delimiterLength);
+      index = closingIndex + delimiterLength;
+      continue;
+    }
+
+    const normalizedInner = inner.replace(/^[ \t]+/, "").replace(/[ \t]+$/, "");
+    result += "$".repeat(delimiterLength) + normalizedInner + "$".repeat(delimiterLength);
+    index = closingIndex + delimiterLength;
+  }
+
+  return result;
+}
+
+function normalizeLatexWhitespace(content) {
+  const source = String(content || "");
+  const protectedCodePattern = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g;
+  let result = "";
+  let lastIndex = 0;
+  let match = protectedCodePattern.exec(source);
+
+  while (match) {
+    result += normalizeLatexWhitespaceInSegment(source.slice(lastIndex, match.index));
+    result += match[0];
+    lastIndex = match.index + match[0].length;
+    match = protectedCodePattern.exec(source);
+  }
+
+  result += normalizeLatexWhitespaceInSegment(source.slice(lastIndex));
+  return result;
+}
+
 function normalizeRenderedHtml(html) {
   if (typeof DOMParser === "undefined") {
     return html;
@@ -146,7 +225,7 @@ function normalizeRenderedHtml(html) {
 }
 
 export function renderMarkdown(content) {
-  const rendered = md.render(content || "");
+  const rendered = md.render(normalizeLatexWhitespace(content));
   if (typeof window === "undefined") {
     return rendered;
   }
