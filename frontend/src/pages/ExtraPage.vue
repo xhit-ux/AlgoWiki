@@ -13,7 +13,10 @@
       <section class="trick-submit card" v-if="auth.isAuthenticated">
         <div class="trick-submit-head">
           <h4>提交 trick</h4>
-          <span class="trick-submit-hint">已选词条 {{ selectedTrickTerms.length }} 个 · 待审词条 {{ trickForm.pending_term_names.length }} 个</span>
+          <span class="trick-submit-hint"
+            >已选词条 {{ selectedTrickTerms.length }} 个 · 待审词条
+            {{ trickForm.pending_term_names.length }} 个</span
+          >
         </div>
         <input
           class="input"
@@ -31,8 +34,17 @@
             placeholder="搜索词条（如：前缀和 / 二分答案）"
           />
           <div class="term-options">
-            <label v-for="term in filteredTrickTerms" :key="term.id" class="term-option">
-              <input type="checkbox" :value="term.id" :checked="trickForm.term_ids.includes(term.id)" @change="toggleTrickTerm(term.id)" />
+            <label
+              v-for="term in filteredTrickTerms"
+              :key="term.id"
+              class="term-option"
+            >
+              <input
+                type="checkbox"
+                :value="term.id"
+                :checked="trickForm.term_ids.includes(term.id)"
+                @change="toggleTrickTerm(term.id)"
+              />
               <span>{{ term.name }}</span>
             </label>
           </div>
@@ -55,9 +67,20 @@
               placeholder="预输入待审核词条（审核通过后自动展示）"
               @keyup.enter.prevent="addPendingTermDraft"
             />
-            <button class="btn add-tag-btn" type="button" @click="addPendingTermDraft">+ 添加</button>
+            <button
+              class="btn add-tag-btn"
+              type="button"
+              @click="addPendingTermDraft"
+            >
+              + 添加
+            </button>
           </div>
-          <transition-group name="pending-term-fade" tag="div" class="term-selected" v-if="trickForm.pending_term_names.length">
+          <transition-group
+            name="pending-term-fade"
+            tag="div"
+            class="term-selected"
+            v-if="trickForm.pending_term_names.length"
+          >
             <button
               type="button"
               v-for="(name, idx) in trickForm.pending_term_names"
@@ -70,13 +93,36 @@
           </transition-group>
           <p v-else class="meta">未添加待审核词条，可用“+ 添加”预先录入。</p>
         </div>
-        <div class="trick-editor-shell" :class="{ 'is-expanded': submitEditorExpanded }">
+        <div
+          class="trick-editor-shell"
+          :class="{ 'is-expanded': submitEditorExpanded }"
+        >
           <div class="editor-toolbar">
             <div class="editor-mode-switch">
-              <button type="button" class="btn btn-mini" :class="{ 'is-active': submitEditorMode === 'edit' }" @click="submitEditorMode = 'edit'">编辑</button>
-              <button type="button" class="btn btn-mini" :class="{ 'is-active': submitEditorMode === 'preview' }" @click="submitEditorMode = 'preview'">预览</button>
+              <button
+                type="button"
+                class="btn btn-mini"
+                :class="{ 'is-active': submitEditorMode === 'edit' }"
+                @click="submitEditorMode = 'edit'"
+              >
+                编辑
+              </button>
+              <button
+                type="button"
+                class="btn btn-mini"
+                :class="{ 'is-active': submitEditorMode === 'preview' }"
+                @click="submitEditorMode = 'preview'"
+              >
+                预览
+              </button>
             </div>
-            <button type="button" class="btn btn-mini" @click="submitEditorExpanded = !submitEditorExpanded">{{ submitEditorExpanded ? '收起编写' : '展开编写' }}</button>
+            <button
+              type="button"
+              class="btn btn-mini"
+              @click="submitEditorExpanded = !submitEditorExpanded"
+            >
+              {{ submitEditorExpanded ? "收起编写" : "展开编写" }}
+            </button>
           </div>
           <textarea
             v-if="submitEditorMode === 'edit'"
@@ -84,9 +130,17 @@
             v-model="trickForm.content_md"
             placeholder="使用 Markdown 编写 trick 内容"
           ></textarea>
-          <div v-else class="markdown trick-editor-preview" v-html="renderMarkdown(trickForm.content_md || '')"></div>
+          <div
+            v-else
+            class="markdown trick-editor-preview"
+            v-html="renderMarkdown(trickForm.content_md || '')"
+          ></div>
         </div>
-        <button class="btn btn-accent" :disabled="submittingTrick" @click="submitTrick">
+        <button
+          class="btn btn-accent"
+          :disabled="submittingTrick"
+          @click="submitTrick"
+        >
           {{ submittingTrick ? "提交中..." : "提交 trick" }}
         </button>
       </section>
@@ -100,9 +154,17 @@
             placeholder="搜索 trick 标题或内容"
             @keyup.enter="loadTricks(1, false)"
           />
-          <select class="select" v-model="trickFilters.termId" @change="loadTricks(1, false)">
+          <select
+            class="select"
+            v-model="trickFilters.termId"
+            @change="loadTricks(1, false)"
+          >
             <option value="">全部词条</option>
-            <option v-for="term in sortedTrickTerms" :key="`filter-term-${term.id}`" :value="String(term.id)">
+            <option
+              v-for="term in sortedTrickTerms"
+              :key="`filter-term-${term.id}`"
+              :value="String(term.id)"
+            >
               {{ term.name }}
             </option>
           </select>
@@ -110,35 +172,82 @@
         </div>
         <div class="trick-list-meta">
           <span>共 {{ trickMeta.count }} 条</span>
-          <span v-if="trickFilters.search || trickFilters.termId">当前为筛选结果</span>
+          <span v-if="trickFilters.search || trickFilters.termId"
+            >当前为筛选结果</span
+          >
         </div>
         <article class="trick-item" v-for="item in tricks" :key="item.id">
           <header class="trick-item-head">
             <h5 class="trick-item-title">{{ item.title || "未命名 trick" }}</h5>
-            <span class="trick-status-badge" v-if="showStatus(item)">{{ statusText(item.status) }}</span>
+            <span class="trick-status-badge" v-if="showStatus(item)">{{
+              statusText(item.status)
+            }}</span>
           </header>
           <div class="trick-meta-row">
             <span>发布者：{{ item.author?.username || "-" }}</span>
             <span>发布时间：{{ formatTime(item.created_at) }}</span>
           </div>
           <div class="term-selected" v-if="item.terms?.length">
-            <span v-for="term in sortTermItems(item.terms)" :key="`term-${item.id}-${term.id}`" class="term-chip">{{ term.name }}</span>
+            <span
+              v-for="term in sortTermItems(item.terms)"
+              :key="`term-${item.id}-${term.id}`"
+              class="term-chip"
+              >{{ term.name }}</span
+            >
           </div>
 
-          <div class="trick-action-row" v-if="canEditTrick(item) || canDeleteTrick(item) || canModerateTrick(item)">
-            <span class="trick-status" v-if="showStatus(item)">状态：{{ statusText(item.status) }}</span>
-            <button class="btn btn-mini" v-if="canEditTrick(item)" @click="startEditTrick(item)">
+          <div
+            class="trick-action-row"
+            v-if="
+              canEditTrick(item) ||
+              canDeleteTrick(item) ||
+              canModerateTrick(item)
+            "
+          >
+            <span class="trick-status" v-if="showStatus(item)"
+              >状态：{{ statusText(item.status) }}</span
+            >
+            <button
+              class="btn btn-mini"
+              v-if="canEditTrick(item)"
+              @click="startEditTrick(item)"
+            >
               {{ editingTrickId === item.id ? "取消编辑" : "编辑" }}
             </button>
-            <button class="btn btn-mini" v-if="canDeleteTrick(item)" @click="deleteTrick(item)">删除</button>
-            <button class="btn btn-mini" v-if="canModerateTrick(item)" @click="setTrickStatus(item, 'approved')">通过</button>
-            <button class="btn btn-mini" v-if="canModerateTrick(item)" @click="setTrickStatus(item, 'rejected')">拒绝</button>
+            <button
+              class="btn btn-mini"
+              v-if="canDeleteTrick(item)"
+              @click="deleteTrick(item)"
+            >
+              删除
+            </button>
+            <button
+              class="btn btn-mini"
+              v-if="canModerateTrick(item)"
+              @click="setTrickStatus(item, 'approved')"
+            >
+              通过
+            </button>
+            <button
+              class="btn btn-mini"
+              v-if="canModerateTrick(item)"
+              @click="setTrickStatus(item, 'rejected')"
+            >
+              拒绝
+            </button>
           </div>
 
           <div v-if="editingTrickId === item.id" class="trick-edit-zone">
             <div class="trick-action-row">
-              <span class="trick-status">已选词条 {{ editSelectedTrickTerms.length }} 个 · 待审词条 {{ editForm.pending_term_names.length }} 个</span>
-              <button class="btn btn-mini" type="button" @click="editTagEditorVisible = !editTagEditorVisible">
+              <span class="trick-status"
+                >已选词条 {{ editSelectedTrickTerms.length }} 个 · 待审词条
+                {{ editForm.pending_term_names.length }} 个</span
+              >
+              <button
+                class="btn btn-mini"
+                type="button"
+                @click="editTagEditorVisible = !editTagEditorVisible"
+              >
                 {{ editTagEditorVisible ? "收起 tag 编辑" : "编辑 tag" }}
               </button>
             </div>
@@ -153,8 +262,17 @@
                 placeholder="搜索词条（如：前缀和 / 二分答案）"
               />
               <div class="term-options">
-                <label v-for="term in filteredEditTrickTerms" :key="`edit-term-${term.id}`" class="term-option">
-                  <input type="checkbox" :value="term.id" :checked="editForm.term_ids.includes(term.id)" @change="toggleEditTrickTerm(term.id)" />
+                <label
+                  v-for="term in filteredEditTrickTerms"
+                  :key="`edit-term-${term.id}`"
+                  class="term-option"
+                >
+                  <input
+                    type="checkbox"
+                    :value="term.id"
+                    :checked="editForm.term_ids.includes(term.id)"
+                    @change="toggleEditTrickTerm(term.id)"
+                  />
                   <span>{{ term.name }}</span>
                 </label>
               </div>
@@ -177,9 +295,20 @@
                   placeholder="预输入待审核词条（审核通过后自动展示）"
                   @keyup.enter.prevent="addEditPendingTermDraft"
                 />
-                <button class="btn add-tag-btn" type="button" @click="addEditPendingTermDraft">+ 添加</button>
+                <button
+                  class="btn add-tag-btn"
+                  type="button"
+                  @click="addEditPendingTermDraft"
+                >
+                  + 添加
+                </button>
               </div>
-              <transition-group name="pending-term-fade" tag="div" class="term-selected" v-if="editForm.pending_term_names.length">
+              <transition-group
+                name="pending-term-fade"
+                tag="div"
+                class="term-selected"
+                v-if="editForm.pending_term_names.length"
+              >
                 <button
                   type="button"
                   v-for="(name, idx) in editForm.pending_term_names"
@@ -190,8 +319,13 @@
                   {{ name }} · 待审 ×
                 </button>
               </transition-group>
-              <p v-else class="meta">未添加待审核词条，可用“+ 添加”预先录入。</p>
-              <div class="term-selected" v-if="filteredOwnPendingTermNamesForEdit.length">
+              <p v-else class="meta">
+                未添加待审核词条，可用“+ 添加”预先录入。
+              </p>
+              <div
+                class="term-selected"
+                v-if="filteredOwnPendingTermNamesForEdit.length"
+              >
                 <button
                   type="button"
                   v-for="name in filteredOwnPendingTermNamesForEdit"
@@ -202,31 +336,76 @@
                   {{ name }} · 我的待审 +
                 </button>
               </div>
-              <p class="meta" v-else-if="ownPendingTermNames.length">当前搜索下没有可添加的我的待审词条。</p>
+              <p class="meta" v-else-if="ownPendingTermNames.length">
+                当前搜索下没有可添加的我的待审词条。
+              </p>
             </div>
-            <div class="trick-editor-shell" :class="{ 'is-expanded': editEditorExpanded }">
+            <div
+              class="trick-editor-shell"
+              :class="{ 'is-expanded': editEditorExpanded }"
+            >
               <div class="editor-toolbar">
                 <div class="editor-mode-switch">
-                  <button type="button" class="btn btn-mini" :class="{ 'is-active': editEditorMode === 'edit' }" @click="editEditorMode = 'edit'">编辑</button>
-                  <button type="button" class="btn btn-mini" :class="{ 'is-active': editEditorMode === 'preview' }" @click="editEditorMode = 'preview'">预览</button>
+                  <button
+                    type="button"
+                    class="btn btn-mini"
+                    :class="{ 'is-active': editEditorMode === 'edit' }"
+                    @click="editEditorMode = 'edit'"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-mini"
+                    :class="{ 'is-active': editEditorMode === 'preview' }"
+                    @click="editEditorMode = 'preview'"
+                  >
+                    预览
+                  </button>
                 </div>
-                <button type="button" class="btn btn-mini" @click="editEditorExpanded = !editEditorExpanded">{{ editEditorExpanded ? '收起编写' : '展开编写' }}</button>
+                <button
+                  type="button"
+                  class="btn btn-mini"
+                  @click="editEditorExpanded = !editEditorExpanded"
+                >
+                  {{ editEditorExpanded ? "收起编写" : "展开编写" }}
+                </button>
               </div>
-              <textarea v-if="editEditorMode === 'edit'" class="textarea trick-editor-textarea" v-model="editForm.content_md"></textarea>
-              <div v-else class="markdown trick-editor-preview" v-html="renderMarkdown(editForm.content_md || '')"></div>
+              <textarea
+                v-if="editEditorMode === 'edit'"
+                class="textarea trick-editor-textarea"
+                v-model="editForm.content_md"
+              ></textarea>
+              <div
+                v-else
+                class="markdown trick-editor-preview"
+                v-html="renderMarkdown(editForm.content_md || '')"
+              ></div>
             </div>
-            <button class="btn btn-accent" :disabled="savingEdit" @click="saveEditTrick(item)">
+            <button
+              class="btn btn-accent"
+              :disabled="savingEdit"
+              @click="saveEditTrick(item)"
+            >
               {{ savingEdit ? "保存中..." : "保存修改" }}
             </button>
           </div>
 
-          <div v-else class="markdown trick-markdown" v-html="renderMarkdown(item.content_md || '')"></div>
+          <div
+            v-else
+            class="markdown trick-markdown"
+            v-html="renderMarkdown(item.content_md || '')"
+          ></div>
         </article>
 
         <p v-if="!tricks.length" class="meta">暂无 trick 记录。</p>
 
         <div class="table-foot" v-if="trickMeta.next">
-          <button class="btn" :disabled="trickMeta.loadingMore" @click="loadMoreTricks">
+          <button
+            class="btn"
+            :disabled="trickMeta.loadingMore"
+            @click="loadMoreTricks"
+          >
             {{ trickMeta.loadingMore ? "加载中..." : "加载更多" }}
           </button>
         </div>
@@ -236,7 +415,9 @@
     <article v-else class="extra-main extra-main--page">
       <header class="extra-head">
         <div class="extra-head-copy">
-          <div class="section-title">{{ page?.title || fallbackPageTitle }}</div>
+          <div class="section-title">
+            {{ page?.title || fallbackPageTitle }}
+          </div>
           <p class="meta">{{ page?.description || fallbackPageDescription }}</p>
         </div>
         <div v-if="canEditPage" class="extra-head-actions">
@@ -248,8 +429,16 @@
 
       <section v-if="canEditPage && showPageEditor" class="page-editor card">
         <div class="page-editor-grid">
-          <input v-model.trim="pageForm.title" class="input" placeholder="页面标题" />
-          <input v-model.trim="pageForm.description" class="input" placeholder="页面简介" />
+          <input
+            v-model.trim="pageForm.title"
+            class="input"
+            placeholder="页面标题"
+          />
+          <input
+            v-model.trim="pageForm.description"
+            class="input"
+            placeholder="页面简介"
+          />
         </div>
         <textarea
           v-model="pageForm.content_md"
@@ -257,10 +446,22 @@
           placeholder="使用 Markdown 编写页面内容"
         ></textarea>
         <div class="trick-action-row">
-          <button type="button" class="btn btn-accent" :disabled="savingPage" @click="savePage">
+          <button
+            type="button"
+            class="btn btn-accent"
+            :disabled="savingPage"
+            @click="savePage"
+          >
             {{ savingPage ? "保存中..." : "保存页面" }}
           </button>
-          <button type="button" class="btn" :disabled="savingPage" @click="resetPageEditor">重置</button>
+          <button
+            type="button"
+            class="btn"
+            :disabled="savingPage"
+            @click="resetPageEditor"
+          >
+            重置
+          </button>
         </div>
       </section>
 
@@ -270,7 +471,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from "vue";
 import { useRoute } from "vue-router";
 
 import api from "../services/api";
@@ -340,9 +548,13 @@ const trickFilters = reactive({
 });
 
 const currentPageSlug = computed(() => {
-  const propSlug = String(props.slug || "").trim().toLowerCase();
+  const propSlug = String(props.slug || "")
+    .trim()
+    .toLowerCase();
   if (propSlug) return propSlug;
-  const routeSlug = String(route.params.slug || "").trim().toLowerCase();
+  const routeSlug = String(route.params.slug || "")
+    .trim()
+    .toLowerCase();
   return routeSlug || "about";
 });
 
@@ -350,34 +562,54 @@ const isTricksPanel = computed(() => currentPageSlug.value === "tricks");
 const canEditPage = computed(() => !isTricksPanel.value && auth.isManager);
 const fallbackPageTitle = computed(() => titleFromSlug(currentPageSlug.value));
 const fallbackPageDescription = computed(() =>
-  currentPageSlug.value === "about" ? "项目介绍与路线图。" : "当前页面暂未填写简介。"
+  currentPageSlug.value === "about"
+    ? "项目介绍与路线图。"
+    : "当前页面暂未填写简介。",
 );
-const htmlContent = computed(() => renderMarkdown(page.value?.content_md || ""));
+const htmlContent = computed(() =>
+  renderMarkdown(page.value?.content_md || ""),
+);
 const filteredTrickTerms = computed(() => {
   const keyword = trickTermSearch.value.trim().toLowerCase();
   const source = Array.isArray(trickTerms.value) ? trickTerms.value : [];
   if (!keyword) return source;
-  return source.filter((item) => String(item.name || "").toLowerCase().includes(keyword));
+  return source.filter((item) =>
+    String(item.name || "")
+      .toLowerCase()
+      .includes(keyword),
+  );
 });
 const sortedTrickTerms = computed(() => sortTermItems(trickTerms.value));
 const selectedTrickTerms = computed(() => {
   const selected = new Set(trickForm.term_ids);
-  return sortTermItems(trickTerms.value.filter((term) => selected.has(term.id)));
+  return sortTermItems(
+    trickTerms.value.filter((term) => selected.has(term.id)),
+  );
 });
 const filteredEditTrickTerms = computed(() => {
   const keyword = editTrickTermSearch.value.trim().toLowerCase();
   const source = Array.isArray(trickTerms.value) ? trickTerms.value : [];
   if (!keyword) return source;
-  return source.filter((item) => String(item.name || "").toLowerCase().includes(keyword));
+  return source.filter((item) =>
+    String(item.name || "")
+      .toLowerCase()
+      .includes(keyword),
+  );
 });
 const editSelectedTrickTerms = computed(() => {
   const selected = new Set(editForm.term_ids);
-  return sortTermItems(trickTerms.value.filter((term) => selected.has(term.id)));
+  return sortTermItems(
+    trickTerms.value.filter((term) => selected.has(term.id)),
+  );
 });
 const filteredOwnPendingTermNamesForEdit = computed(() => {
   const keyword = editTrickTermSearch.value.trim().toLowerCase();
-  const selectedNames = new Set(editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()));
-  const chosenPendingNames = new Set(editForm.pending_term_names.map((x) => String(x || "").toLowerCase()));
+  const selectedNames = new Set(
+    editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
+  );
+  const chosenPendingNames = new Set(
+    editForm.pending_term_names.map((x) => String(x || "").toLowerCase()),
+  );
   return ownPendingTermNames.value.filter((name) => {
     const text = String(name || "").trim();
     if (!text) return false;
@@ -396,7 +628,9 @@ const pinyinCollator = new Intl.Collator("zh-u-co-pinyin", {
 
 function sortTermItems(items) {
   const source = Array.isArray(items) ? [...items] : [];
-  source.sort((a, b) => pinyinCollator.compare(String(a?.name || ""), String(b?.name || "")));
+  source.sort((a, b) =>
+    pinyinCollator.compare(String(a?.name || ""), String(b?.name || "")),
+  );
   return source;
 }
 
@@ -445,7 +679,10 @@ function canModerateTrick(item) {
 function nextPageFromUrl(url, fallback = 2) {
   if (!url) return fallback;
   try {
-    return Number(new URL(url, window.location.origin).searchParams.get("page") || String(fallback));
+    return Number(
+      new URL(url, window.location.origin).searchParams.get("page") ||
+        String(fallback),
+    );
   } catch {
     return fallback;
   }
@@ -665,8 +902,12 @@ function addPendingTermDraft() {
   const name = String(trickForm.pending_term_draft || "").trim();
   if (!name) return;
   const key = name.toLowerCase();
-  const selectedNames = new Set(selectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()));
-  const pendingNames = new Set(trickForm.pending_term_names.map((x) => String(x || "").toLowerCase()));
+  const selectedNames = new Set(
+    selectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
+  );
+  const pendingNames = new Set(
+    trickForm.pending_term_names.map((x) => String(x || "").toLowerCase()),
+  );
 
   if (selectedNames.has(key) || pendingNames.has(key)) {
     ui.info("该词条已存在于已选或待审列表中");
@@ -683,7 +924,9 @@ function addPendingTermDraft() {
 
 function removePendingTerm(index) {
   if (index < 0 || index >= trickForm.pending_term_names.length) return;
-  trickForm.pending_term_names = trickForm.pending_term_names.filter((_, idx) => idx !== index);
+  trickForm.pending_term_names = trickForm.pending_term_names.filter(
+    (_, idx) => idx !== index,
+  );
 }
 
 function toggleEditTrickTerm(termId) {
@@ -706,8 +949,12 @@ function addEditPendingTermDraft() {
   const name = String(editForm.pending_term_draft || "").trim();
   if (!name) return;
   const key = name.toLowerCase();
-  const selectedNames = new Set(editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()));
-  const pendingNames = new Set(editForm.pending_term_names.map((x) => String(x || "").toLowerCase()));
+  const selectedNames = new Set(
+    editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
+  );
+  const pendingNames = new Set(
+    editForm.pending_term_names.map((x) => String(x || "").toLowerCase()),
+  );
 
   if (selectedNames.has(key) || pendingNames.has(key)) {
     ui.info("该词条已存在于已选或待审列表中");
@@ -729,7 +976,9 @@ function addEditPendingTermFromMine(name) {
 
 function removeEditPendingTerm(index) {
   if (index < 0 || index >= editForm.pending_term_names.length) return;
-  editForm.pending_term_names = editForm.pending_term_names.filter((_, idx) => idx !== index);
+  editForm.pending_term_names = editForm.pending_term_names.filter(
+    (_, idx) => idx !== index,
+  );
 }
 
 function collectPendingTermsForSubmit() {
@@ -737,10 +986,18 @@ function collectPendingTermsForSubmit() {
   const draft = String(trickForm.pending_term_draft || "").trim();
   if (!draft) return merged;
 
-  const existing = new Set(merged.map((item) => String(item || "").toLowerCase()));
-  const selectedNames = new Set(selectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()));
+  const existing = new Set(
+    merged.map((item) => String(item || "").toLowerCase()),
+  );
+  const selectedNames = new Set(
+    selectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
+  );
   const draftKey = draft.toLowerCase();
-  if (!existing.has(draftKey) && !selectedNames.has(draftKey) && draft.length <= 80) {
+  if (
+    !existing.has(draftKey) &&
+    !selectedNames.has(draftKey) &&
+    draft.length <= 80
+  ) {
     merged.push(draft);
   }
   return merged;
@@ -751,10 +1008,18 @@ function collectPendingTermsForEdit() {
   const draft = String(editForm.pending_term_draft || "").trim();
   if (!draft) return merged;
 
-  const existing = new Set(merged.map((item) => String(item || "").toLowerCase()));
-  const selectedNames = new Set(editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()));
+  const existing = new Set(
+    merged.map((item) => String(item || "").toLowerCase()),
+  );
+  const selectedNames = new Set(
+    editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
+  );
   const draftKey = draft.toLowerCase();
-  if (!existing.has(draftKey) && !selectedNames.has(draftKey) && draft.length <= 80) {
+  if (
+    !existing.has(draftKey) &&
+    !selectedNames.has(draftKey) &&
+    draft.length <= 80
+  ) {
     merged.push(draft);
   }
   return merged;
@@ -784,9 +1049,15 @@ function startEditTrick(item) {
   }
   editingTrickId.value = item.id;
   editForm.content_md = item.content_md || "";
-  editForm.term_ids = Array.isArray(item.terms) ? item.terms.map((term) => Number(term.id)).filter((id) => Number.isFinite(id)) : [];
+  editForm.term_ids = Array.isArray(item.terms)
+    ? item.terms
+        .map((term) => Number(term.id))
+        .filter((id) => Number.isFinite(id))
+    : [];
   editForm.pending_term_draft = "";
-  editForm.pending_term_names = Array.isArray(item.pending_term_names) ? item.pending_term_names : [];
+  editForm.pending_term_names = Array.isArray(item.pending_term_names)
+    ? item.pending_term_names
+    : [];
   editTagEditorVisible.value = false;
   editTrickTermSearch.value = "";
   editEditorMode.value = "edit";
@@ -913,7 +1184,7 @@ watch(
     }
     await loadPage();
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 onMounted(async () => {
@@ -1090,7 +1361,9 @@ onMounted(async () => {
 }
 
 .add-tag-btn {
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .add-tag-btn:hover {
@@ -1253,7 +1526,8 @@ onMounted(async () => {
 .trick-editor-shell.is-expanded .trick-editor-preview {
   background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--hairline) 92%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--surface-strong) 70%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--surface-strong) 70%, transparent);
 }
 
 .trick-edit-zone {

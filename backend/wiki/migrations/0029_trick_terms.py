@@ -92,7 +92,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="TrickTerm",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("name", models.CharField(max_length=80, unique=True)),
@@ -108,7 +116,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="TrickTermSuggestion",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("name", models.CharField(max_length=80)),
@@ -116,7 +132,11 @@ class Migration(migrations.Migration):
                 (
                     "status",
                     models.CharField(
-                        choices=[("pending", "Pending"), ("approved", "Approved"), ("rejected", "Rejected")],
+                        choices=[
+                            ("pending", "Pending"),
+                            ("approved", "Approved"),
+                            ("rejected", "Rejected"),
+                        ],
                         db_index=True,
                         default="pending",
                         max_length=20,
@@ -126,11 +146,21 @@ class Migration(migrations.Migration):
                 ("reviewed_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "proposer",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="trick_term_suggestions", to="wiki.user"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="trick_term_suggestions",
+                        to="wiki.user",
+                    ),
                 ),
                 (
                     "reviewer",
-                    models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="reviewed_trick_term_suggestions", to="wiki.user"),
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="reviewed_trick_term_suggestions",
+                        to="wiki.user",
+                    ),
                 ),
             ],
             options={
@@ -140,7 +170,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="trickentry",
             name="terms",
-            field=models.ManyToManyField(blank=True, related_name="trick_entries", to="wiki.trickterm"),
+            field=models.ManyToManyField(
+                blank=True, related_name="trick_entries", to="wiki.trickterm"
+            ),
         ),
         migrations.AddConstraint(
             model_name="tricktermsuggestion",
