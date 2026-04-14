@@ -1,8 +1,8 @@
-﻿import { createRouter, createWebHistory } from "vue-router";
+import { createRouter, createWebHistory } from "vue-router";
 
+import HomePage from "../pages/HomePage.vue";
 import { useAuthStore } from "../stores/auth";
 
-const HomePage = () => import("../pages/HomePage.vue");
 const AnnouncementsPage = () => import("../pages/AnnouncementsPage.vue");
 const CompetitionZonePage = () => import("../pages/CompetitionZonePage.vue");
 const FriendlyLinksPage = () => import("../pages/FriendlyLinksPage.vue");
@@ -15,6 +15,10 @@ const AuthPage = () => import("../pages/AuthPage.vue");
 const QaPage = () => import("../pages/QaPage.vue");
 const ReviewPage = () => import("../pages/ReviewPage.vue");
 const RevisionReviewPage = () => import("../pages/RevisionReviewPage.vue");
+
+const ROUTE_CHUNK_RELOAD_QUERY = "__route_reload__";
+const ROUTE_CHUNK_ERROR_PATTERN =
+  /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i;
 
 const manageSections = [
   { path: "users", name: "manage-users", section: "users" },
@@ -135,6 +139,21 @@ const router = createRouter({
   routes,
 });
 
+router.onError((error) => {
+  const message = String(error?.message || "");
+  if (typeof window === "undefined" || !ROUTE_CHUNK_ERROR_PATTERN.test(message)) {
+    return;
+  }
+
+  const currentUrl = new URL(window.location.href);
+  if (currentUrl.searchParams.get(ROUTE_CHUNK_RELOAD_QUERY) === "1") {
+    return;
+  }
+
+  currentUrl.searchParams.set(ROUTE_CHUNK_RELOAD_QUERY, "1");
+  window.location.replace(currentUrl.toString());
+});
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
 
@@ -165,6 +184,20 @@ router.beforeEach(async (to) => {
   }
 
   return true;
+});
+
+router.isReady().then(() => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const currentUrl = new URL(window.location.href);
+  if (currentUrl.searchParams.get(ROUTE_CHUNK_RELOAD_QUERY) !== "1") {
+    return;
+  }
+
+  currentUrl.searchParams.delete(ROUTE_CHUNK_RELOAD_QUERY);
+  window.history.replaceState({}, document.title, `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
 });
 
 export default router;

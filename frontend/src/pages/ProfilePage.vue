@@ -610,6 +610,10 @@ const revisionFilters = reactive({
 });
 
 const revisionEditForm = reactive({
+  base_title: "",
+  base_summary: "",
+  base_content_md: "",
+  base_updated_at: "",
   proposed_title: "",
   proposed_summary: "",
   proposed_content_md: "",
@@ -771,6 +775,10 @@ function togglePasswordVisibility(key) {
 }
 
 function clearRevisionEditForm() {
+  revisionEditForm.base_title = "";
+  revisionEditForm.base_summary = "";
+  revisionEditForm.base_content_md = "";
+  revisionEditForm.base_updated_at = "";
   revisionEditForm.proposed_title = "";
   revisionEditForm.proposed_summary = "";
   revisionEditForm.proposed_content_md = "";
@@ -793,6 +801,14 @@ function startEditRevision(item) {
   if (!item || item.status !== "pending") return;
   expandedRevisionId.value = item.id;
   editingRevisionId.value = item.id;
+  revisionEditForm.base_title = item.base_title || item.article_title || "";
+  revisionEditForm.base_summary = Object.prototype.hasOwnProperty.call(item, "base_summary")
+    ? (item.base_summary ?? "")
+    : (item.article_summary || "");
+  revisionEditForm.base_content_md = Object.prototype.hasOwnProperty.call(item, "base_content_md")
+    ? (item.base_content_md ?? "")
+    : (item.article_content_md || "");
+  revisionEditForm.base_updated_at = item.base_updated_at || item.article_updated_at || "";
   revisionEditForm.proposed_title = item.proposed_title || item.article_title || "";
   revisionEditForm.proposed_summary = item.proposed_summary || "";
   revisionEditForm.proposed_content_md = item.proposed_content_md || "";
@@ -1045,6 +1061,10 @@ async function saveRevisionEdit(item) {
   savingRevisionEditId.value = item.id;
   try {
     const payload = {
+      base_title: revisionEditForm.base_title,
+      base_summary: revisionEditForm.base_summary,
+      base_content_md: revisionEditForm.base_content_md,
+      base_updated_at: revisionEditForm.base_updated_at || null,
       proposed_title: revisionEditForm.proposed_title.trim(),
       proposed_summary: revisionEditForm.proposed_summary.trim(),
       proposed_content_md: revisionEditForm.proposed_content_md,
@@ -1056,6 +1076,18 @@ async function saveRevisionEdit(item) {
     await loadMyRevisions(1, false);
     expandedRevisionId.value = item.id;
   } catch (error) {
+    const merge = error?.response?.data?.merge;
+    if (error?.response?.status === 409 && error?.response?.data?.code === "revision_merge_conflict" && merge) {
+      revisionEditForm.base_title = merge?.current?.title ?? revisionEditForm.base_title;
+      revisionEditForm.base_summary = merge?.current?.summary ?? revisionEditForm.base_summary;
+      revisionEditForm.base_content_md = merge?.current?.content_md ?? revisionEditForm.base_content_md;
+      revisionEditForm.base_updated_at = merge?.current?.updated_at ?? revisionEditForm.base_updated_at;
+      revisionEditForm.proposed_title = merge?.merged?.title ?? revisionEditForm.proposed_title;
+      revisionEditForm.proposed_summary = merge?.merged?.summary ?? revisionEditForm.proposed_summary;
+      revisionEditForm.proposed_content_md = merge?.merged?.content_md ?? revisionEditForm.proposed_content_md;
+      ui.error(error?.response?.data?.detail || "条目已有新版本，已把合并结果放回编辑器，请处理冲突后再保存。");
+      return;
+    }
     ui.error(getErrorText(error, "Failed to update revision proposal"));
   } finally {
     savingRevisionEditId.value = null;

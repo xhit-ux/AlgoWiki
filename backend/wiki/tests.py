@@ -2370,6 +2370,151 @@ class ProfileAndMineEndpointsTests(APITestCase):
         self.assertEqual(self.revision_article.last_editor_id, admin.id)
 
 
+class RevisionMergeFlowTests(APITestCase):
+    def setUp(self):
+        self.category = Category.objects.create(name="Revision Merge", slug="revision-merge")
+        self.author = User.objects.create_user(username="merge_author", password="Password123", role=User.Role.ADMIN)
+        self.user = User.objects.create_user(username="merge_user", password="Password123", role=User.Role.NORMAL)
+        self.admin = User.objects.create_user(username="merge_admin", password="Password123", role=User.Role.ADMIN)
+        self.user_token = Token.objects.create(user=self.user)
+        self.admin_token = Token.objects.create(user=self.admin)
+        self.article = Article.objects.create(
+            title="Merge Article",
+            summary="summary",
+            content_md="alpha\nbeta\ngamma\n",
+            category=self.category,
+            author=self.author,
+            last_editor=self.author,
+            status=Article.Status.PUBLISHED,
+        )
+
+    def test_revision_create_auto_rebases_non_overlapping_changes(self):
+        base_title = self.article.title
+        base_summary = self.article.summary
+        base_content_md = self.article.content_md
+        base_updated_at = self.article.updated_at
+
+        self.article.content_md = "alpha\nbeta updated\ngamma\n"
+        self.article.save(update_fields=["content_md", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.user_token.key}")
+        response = self.client.post(
+            "/api/revisions/",
+            {
+                "article": self.article.id,
+                "base_title": base_title,
+                "base_summary": base_summary,
+                "base_content_md": base_content_md,
+                "base_updated_at": base_updated_at.isoformat(),
+                "proposed_title": base_title,
+                "proposed_summary": base_summary,
+                "proposed_content_md": "alpha\nbeta\ngamma\ndelta\n",
+                "reason": "append delta",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], RevisionProposal.Status.PENDING)
+        self.assertEqual(response.data["base_content_md"], "alpha\nbeta updated\ngamma\n")
+        self.assertEqual(response.data["proposed_content_md"], "alpha\nbeta updated\ngamma\ndelta\n")
+        self.assertTrue(response.data["base_matches_article"])
+
+    def test_revision_create_returns_conflict_for_same_line_changes(self):
+        base_title = self.article.title
+        base_summary = self.article.summary
+        base_content_md = self.article.content_md
+        base_updated_at = self.article.updated_at
+
+        self.article.content_md = "alpha\nbeta current\ngamma\n"
+        self.article.save(update_fields=["content_md", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.user_token.key}")
+        response = self.client.post(
+            "/api/revisions/",
+            {
+                "article": self.article.id,
+                "base_title": base_title,
+                "base_summary": base_summary,
+                "base_content_md": base_content_md,
+                "base_updated_at": base_updated_at.isoformat(),
+                "proposed_title": base_title,
+                "proposed_summary": base_summary,
+                "proposed_content_md": "alpha\nbeta proposed\ngamma\n",
+                "reason": "modify beta",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "revision_merge_conflict")
+        self.assertIn("<<<<<<< Current Article", response.data["merge"]["merged"]["content_md"])
+        self.assertEqual(RevisionProposal.objects.count(), 0)
+
+    def test_revision_approve_auto_merges_non_overlapping_changes(self):
+        proposal = RevisionProposal.objects.create(
+            article=self.article,
+            proposer=self.user,
+            base_title=self.article.title,
+            base_summary=self.article.summary,
+            base_content_md=self.article.content_md,
+            base_updated_at=self.article.updated_at,
+            proposed_title=self.article.title,
+            proposed_summary=self.article.summary,
+            proposed_content_md="alpha\nbeta\ngamma\ndelta\n",
+            reason="append delta",
+        )
+
+        self.article.content_md = "alpha\nbeta updated\ngamma\n"
+        self.article.save(update_fields=["content_md", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/revisions/{proposal.id}/approve/",
+            {"review_note": "merged"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        proposal.refresh_from_db()
+        self.article.refresh_from_db()
+        self.assertEqual(proposal.status, RevisionProposal.Status.APPROVED)
+        self.assertEqual(proposal.base_content_md, "alpha\nbeta updated\ngamma\n")
+        self.assertEqual(proposal.proposed_content_md, "alpha\nbeta updated\ngamma\ndelta\n")
+        self.assertEqual(self.article.content_md, "alpha\nbeta updated\ngamma\ndelta\n")
+
+    def test_revision_approve_returns_conflict_for_same_line_changes(self):
+        proposal = RevisionProposal.objects.create(
+            article=self.article,
+            proposer=self.user,
+            base_title=self.article.title,
+            base_summary=self.article.summary,
+            base_content_md=self.article.content_md,
+            base_updated_at=self.article.updated_at,
+            proposed_title=self.article.title,
+            proposed_summary=self.article.summary,
+            proposed_content_md="alpha\nbeta proposed\ngamma\n",
+            reason="modify beta",
+        )
+
+        self.article.content_md = "alpha\nbeta current\ngamma\n"
+        self.article.save(update_fields=["content_md", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/revisions/{proposal.id}/approve/",
+            {"review_note": "try approve"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "revision_merge_conflict")
+        proposal.refresh_from_db()
+        self.article.refresh_from_db()
+        self.assertEqual(proposal.status, RevisionProposal.Status.PENDING)
+        self.assertEqual(self.article.content_md, "alpha\nbeta current\ngamma\n")
+
+
 class TrickEntryFlowTests(APITestCase):
     def setUp(self):
         cache.clear()
@@ -3728,6 +3873,58 @@ class RevisionBulkReviewTests(APITestCase):
         self.assertEqual(self.public_article.summary, "")
         self.assertEqual(
             self.public_article.content_md, "new public content with cleared summary"
+        )
+
+    def test_bulk_review_skips_conflicted_proposals(self):
+        self.public_article.content_md = "old public changed by another editor"
+        self.public_article.save(update_fields=["content_md", "updated_at"])
+        self.public_proposal.base_title = "Public Revision Article"
+        self.public_proposal.base_summary = "summary"
+        self.public_proposal.base_content_md = "old public"
+        self.public_proposal.base_updated_at = timezone.now() - timedelta(days=1)
+        self.public_proposal.proposed_title = "Public Revision Article Updated"
+        self.public_proposal.proposed_summary = "updated"
+        self.public_proposal.proposed_content_md = "new public content"
+        self.public_proposal.save(
+            update_fields=[
+                "base_title",
+                "base_summary",
+                "base_content_md",
+                "base_updated_at",
+                "proposed_title",
+                "proposed_summary",
+                "proposed_content_md",
+                "updated_at",
+            ]
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            "/api/revisions/bulk-review/",
+            {
+                "ids": [self.public_proposal.id, self.school_proposal.id],
+                "action": "approve",
+                "review_note": "bulk approved",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["success"], 1)
+        self.assertEqual(response.data["failed"], 1)
+
+        self.public_proposal.refresh_from_db()
+        self.school_proposal.refresh_from_db()
+        self.public_article.refresh_from_db()
+        self.school_article.refresh_from_db()
+
+        self.assertEqual(self.public_proposal.status, RevisionProposal.Status.PENDING)
+        self.assertEqual(self.school_proposal.status, RevisionProposal.Status.APPROVED)
+        self.assertEqual(self.public_article.content_md, "old public changed by another editor")
+        self.assertEqual(self.school_article.content_md, "new school content")
+        self.assertEqual(
+            next(item for item in response.data["results"] if item["id"] == self.public_proposal.id)["code"],
+            "revision_merge_conflict",
         )
 
     def test_school_bulk_review_is_forbidden(self):

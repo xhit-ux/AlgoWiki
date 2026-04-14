@@ -1138,9 +1138,15 @@ class RevisionProposalSerializer(serializers.ModelSerializer):
     proposer = UserPublicSerializer(read_only=True)
     reviewer = UserPublicSerializer(read_only=True)
     article_title = serializers.CharField(source="article.title", read_only=True)
-    article_content_md = serializers.CharField(
-        source="article.content_md", read_only=True
-    )
+    article_summary = serializers.CharField(source="article.summary", read_only=True)
+    article_content_md = serializers.CharField(source="article.content_md", read_only=True)
+    article_updated_at = serializers.DateTimeField(source="article.updated_at", read_only=True)
+    base_matches_article = serializers.SerializerMethodField()
+    base_summary = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    base_content_md = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    proposed_summary = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    proposed_content_md = serializers.CharField(trim_whitespace=False)
+    reason = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
     class Meta:
         model = RevisionProposal
@@ -1148,8 +1154,15 @@ class RevisionProposalSerializer(serializers.ModelSerializer):
             "id",
             "article",
             "article_title",
+            "article_summary",
             "article_content_md",
+            "article_updated_at",
             "proposer",
+            "base_title",
+            "base_summary",
+            "base_content_md",
+            "base_updated_at",
+            "base_matches_article",
             "proposed_title",
             "proposed_summary",
             "proposed_content_md",
@@ -1182,6 +1195,16 @@ class RevisionProposalSerializer(serializers.ModelSerializer):
                 }
             )
         return attrs
+
+    def get_base_matches_article(self, obj):
+        article = getattr(obj, "article", None)
+        if not article:
+            return False
+        return (
+            str(obj.base_title or "") == str(article.title or "")
+            and str(obj.base_summary or "") == str(article.summary or "")
+            and str(obj.base_content_md or "") == str(article.content_md or "")
+        )
 
 
 class IssueTicketSerializer(serializers.ModelSerializer):

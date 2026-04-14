@@ -145,6 +145,7 @@ from .assistant import (
     invoke_assistant_completion,
     search_public_corpus,
 )
+from .merge import build_snapshot, merge_article_revision, snapshot_article
 
 api_logger = logging.getLogger("algowiki.api")
 
@@ -2999,6 +3000,101 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         "destroy": [ContentDeleteRateThrottle],
     }
 
+    def _normalize_title(self, value, *, fallback=""):
+        text = str(value or "").strip()
+        if text:
+            return text
+        return str(fallback or "")
+
+    def _serialize_snapshot(self, snapshot):
+        updated_at = snapshot.updated_at
+        if updated_at is not None and timezone.is_naive(updated_at):
+            updated_at = timezone.make_aware(updated_at, timezone.get_current_timezone())
+        return {
+            "title": snapshot.title,
+            "summary": snapshot.summary,
+            "content_md": snapshot.content_md,
+            "updated_at": timezone.localtime(updated_at).isoformat() if updated_at is not None else None,
+        }
+
+    def _build_payload_base_snapshot(self, *, payload, fallback_snapshot):
+        payload = payload or {}
+        return build_snapshot(
+            title=self._normalize_title(payload.get("base_title", fallback_snapshot.title), fallback=fallback_snapshot.title),
+            summary=payload.get("base_summary", fallback_snapshot.summary),
+            content_md=payload.get("base_content_md", fallback_snapshot.content_md),
+            updated_at=payload.get("base_updated_at", fallback_snapshot.updated_at),
+        )
+
+    def _build_payload_proposed_snapshot(self, *, payload, fallback_snapshot):
+        payload = payload or {}
+        return build_snapshot(
+            title=self._normalize_title(payload.get("proposed_title", fallback_snapshot.title), fallback=fallback_snapshot.title),
+            summary=payload.get("proposed_summary", fallback_snapshot.summary),
+            content_md=payload.get("proposed_content_md", fallback_snapshot.content_md),
+        )
+
+    def _build_proposal_base_snapshot(self, proposal):
+        article_snapshot = snapshot_article(proposal.article)
+        legacy_empty = (
+            proposal.base_updated_at is None
+            and not str(proposal.base_title or "").strip()
+            and not str(proposal.base_summary or "")
+            and not str(proposal.base_content_md or "")
+        )
+        if legacy_empty:
+            return article_snapshot
+        return build_snapshot(
+            title=self._normalize_title(proposal.base_title, fallback=article_snapshot.title),
+            summary=proposal.base_summary,
+            content_md=proposal.base_content_md,
+            updated_at=proposal.base_updated_at or article_snapshot.updated_at,
+        )
+
+    def _build_proposal_proposed_snapshot(self, proposal):
+        base_snapshot = self._build_proposal_base_snapshot(proposal)
+        return build_snapshot(
+            title=self._normalize_title(proposal.proposed_title, fallback=base_snapshot.title),
+            summary=proposal.proposed_summary,
+            content_md=proposal.proposed_content_md,
+        )
+
+    def _snapshot_save_kwargs(self, *, base_snapshot, proposed_snapshot):
+        return {
+            "base_title": base_snapshot.title,
+            "base_summary": base_snapshot.summary,
+            "base_content_md": base_snapshot.content_md,
+            "base_updated_at": base_snapshot.updated_at,
+            "proposed_title": proposed_snapshot.title,
+            "proposed_summary": proposed_snapshot.summary,
+            "proposed_content_md": proposed_snapshot.content_md,
+        }
+
+    def _build_merge_conflict_response(self, *, base_snapshot, current_snapshot, proposed_snapshot, merge_result, detail):
+        return Response(
+            {
+                "detail": detail,
+                "code": "revision_merge_conflict",
+                "merge": {
+                    "base": self._serialize_snapshot(base_snapshot),
+                    "current": self._serialize_snapshot(current_snapshot),
+                    "proposed": self._serialize_snapshot(proposed_snapshot),
+                    "merged": self._serialize_snapshot(merge_result["merged"]),
+                    "conflicts": merge_result["conflicts"],
+                    "rebased": bool(merge_result.get("rebased")),
+                },
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    def _apply_snapshot_to_article(self, *, article, snapshot, editor):
+        article.title = snapshot.title
+        article.summary = snapshot.summary
+        article.content_md = snapshot.content_md
+        article.last_editor = editor
+        article.status = Article.Status.PUBLISHED
+        article.save()
+
     def get_queryset(self):
         queryset = super().get_queryset()
         user = self.request.user
@@ -3037,6 +3133,15 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         target_article = serializer.validated_data["article"]
+        article_snapshot = snapshot_article(target_article)
+        base_snapshot = self._build_payload_base_snapshot(
+            payload=serializer.validated_data,
+            fallback_snapshot=article_snapshot,
+        )
+        proposed_snapshot = self._build_payload_proposed_snapshot(
+            payload=serializer.validated_data,
+            fallback_snapshot=base_snapshot,
+        )
         manager_direct_publish = is_manager(request.user) and can_moderate_category(
             request.user,
             target_article.category,
@@ -3060,21 +3165,39 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
 
         if manager_direct_publish:
             with transaction.atomic():
+                target_article = Article.objects.select_for_update().select_related("category").get(pk=target_article.pk)
+                current_snapshot = snapshot_article(target_article)
+                merge_result = merge_article_revision(
+                    base=base_snapshot,
+                    current=current_snapshot,
+                    proposed=proposed_snapshot,
+                )
+                if merge_result["has_conflicts"]:
+                    return self._build_merge_conflict_response(
+                        base_snapshot=base_snapshot,
+                        current_snapshot=current_snapshot,
+                        proposed_snapshot=proposed_snapshot,
+                        merge_result=merge_result,
+                        detail="This article changed while you were editing. Resolve the merge before publishing.",
+                    )
+
+                merged_snapshot = merge_result["merged"]
                 proposal = serializer.save(
                     proposer=request.user,
+                    **self._snapshot_save_kwargs(
+                        base_snapshot=current_snapshot,
+                        proposed_snapshot=merged_snapshot,
+                    ),
                     status=RevisionProposal.Status.APPROVED,
                     reviewer=request.user,
                     reviewed_at=timezone.now(),
                     review_note="manager_direct_publish",
                 )
-
-                if proposal.proposed_title:
-                    target_article.title = proposal.proposed_title
-                target_article.summary = proposal.proposed_summary
-                target_article.content_md = proposal.proposed_content_md
-                target_article.last_editor = request.user
-                target_article.status = Article.Status.PUBLISHED
-                target_article.save()
+                self._apply_snapshot_to_article(
+                    article=target_article,
+                    snapshot=merged_snapshot,
+                    editor=request.user,
+                )
 
             log_event(
                 request.user,
@@ -3089,16 +3212,30 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 self.get_serializer(proposal).data, status=status.HTTP_201_CREATED
             )
 
-        proposal = serializer.save(proposer=request.user)
-        log_event(
-            request.user,
-            ContributionEvent.EventType.REVISION,
-            proposal,
-            {"article_id": proposal.article_id},
+        current_snapshot = snapshot_article(target_article)
+        merge_result = merge_article_revision(
+            base=base_snapshot,
+            current=current_snapshot,
+            proposed=proposed_snapshot,
         )
-        return Response(
-            self.get_serializer(proposal).data, status=status.HTTP_201_CREATED
+        if merge_result["has_conflicts"]:
+            return self._build_merge_conflict_response(
+                base_snapshot=base_snapshot,
+                current_snapshot=current_snapshot,
+                proposed_snapshot=proposed_snapshot,
+                merge_result=merge_result,
+                detail="This article changed while you were editing. Resolve the merge before submitting again.",
+            )
+
+        proposal = serializer.save(
+            proposer=request.user,
+            **self._snapshot_save_kwargs(
+                base_snapshot=current_snapshot,
+                proposed_snapshot=merge_result["merged"],
+            ),
         )
+        log_event(request.user, ContributionEvent.EventType.REVISION, proposal, {"article_id": proposal.article_id})
+        return Response(self.get_serializer(proposal).data, status=status.HTTP_201_CREATED)
 
     def _validate_user_pending_operation(self, user, proposal, *, operation):
         if proposal.proposer_id != user.id:
@@ -3126,7 +3263,37 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(proposal, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        proposal = serializer.save()
+        stored_base_snapshot = self._build_proposal_base_snapshot(proposal)
+        stored_proposed_snapshot = self._build_proposal_proposed_snapshot(proposal)
+        base_snapshot = self._build_payload_base_snapshot(
+            payload=serializer.validated_data,
+            fallback_snapshot=stored_base_snapshot,
+        )
+        proposed_snapshot = self._build_payload_proposed_snapshot(
+            payload=serializer.validated_data,
+            fallback_snapshot=stored_proposed_snapshot,
+        )
+        current_snapshot = snapshot_article(proposal.article)
+        merge_result = merge_article_revision(
+            base=base_snapshot,
+            current=current_snapshot,
+            proposed=proposed_snapshot,
+        )
+        if merge_result["has_conflicts"]:
+            return self._build_merge_conflict_response(
+                base_snapshot=base_snapshot,
+                current_snapshot=current_snapshot,
+                proposed_snapshot=proposed_snapshot,
+                merge_result=merge_result,
+                detail="This article changed while the proposal was being edited. Resolve the merge before saving.",
+            )
+
+        proposal = serializer.save(
+            **self._snapshot_save_kwargs(
+                base_snapshot=current_snapshot,
+                proposed_snapshot=merge_result["merged"],
+            )
+        )
         log_event(
             request.user,
             ContributionEvent.EventType.REVISION,
@@ -3170,15 +3337,97 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
 
         action = (action or "").strip().lower()
         review_note = "" if review_note is None else str(review_note)
+        resolution_base_updated_at = None
+        resolved_snapshot = None
+        request_data = getattr(getattr(self, "request", None), "data", {}) or {}
+        raw_resolution_updated_at = request_data.get("resolution_base_updated_at")
+        if raw_resolution_updated_at:
+            resolution_base_updated_at = parse_datetime(str(raw_resolution_updated_at))
+            if resolution_base_updated_at is not None and timezone.is_naive(resolution_base_updated_at):
+                resolution_base_updated_at = timezone.make_aware(
+                    resolution_base_updated_at,
+                    timezone.get_current_timezone(),
+                )
+        if any(field in request_data for field in ("resolved_title", "resolved_summary", "resolved_content_md")):
+            proposal_base_snapshot = self._build_proposal_base_snapshot(proposal)
+            resolved_snapshot = self._build_payload_proposed_snapshot(
+                payload={
+                    "proposed_title": request_data.get("resolved_title", proposal.proposed_title),
+                    "proposed_summary": request_data.get("resolved_summary", proposal.proposed_summary),
+                    "proposed_content_md": request_data.get("resolved_content_md", proposal.proposed_content_md),
+                },
+                fallback_snapshot=proposal_base_snapshot,
+            )
 
         if action == "approve":
             with transaction.atomic():
+                proposal = (
+                    RevisionProposal.objects.select_for_update()
+                    .select_related("article", "proposer", "reviewer")
+                    .get(pk=proposal.pk)
+                )
+                article = Article.objects.select_for_update().get(pk=proposal.article_id)
+                proposal.article = article
+                current_snapshot = snapshot_article(article)
+                base_snapshot = self._build_proposal_base_snapshot(proposal)
+                proposed_snapshot = self._build_proposal_proposed_snapshot(proposal)
+
+                if resolved_snapshot is not None:
+                    current_updated_at = current_snapshot.updated_at
+                    if current_updated_at is not None and timezone.is_naive(current_updated_at):
+                        current_updated_at = timezone.make_aware(current_updated_at, timezone.get_current_timezone())
+                    if resolution_base_updated_at is not None and current_updated_at != resolution_base_updated_at:
+                        merge_result = merge_article_revision(
+                            base=base_snapshot,
+                            current=current_snapshot,
+                            proposed=proposed_snapshot,
+                        )
+                        return False, status.HTTP_409_CONFLICT, self._build_merge_conflict_response(
+                            base_snapshot=base_snapshot,
+                            current_snapshot=current_snapshot,
+                            proposed_snapshot=proposed_snapshot,
+                            merge_result=merge_result,
+                            detail="The article changed again before the conflict was resolved. Review the latest merge result and try again.",
+                        )
+                    merged_snapshot = resolved_snapshot
+                    base_snapshot = current_snapshot
+                else:
+                    merge_result = merge_article_revision(
+                        base=base_snapshot,
+                        current=current_snapshot,
+                        proposed=proposed_snapshot,
+                    )
+                    if merge_result["has_conflicts"]:
+                        return False, status.HTTP_409_CONFLICT, self._build_merge_conflict_response(
+                            base_snapshot=base_snapshot,
+                            current_snapshot=current_snapshot,
+                            proposed_snapshot=proposed_snapshot,
+                            merge_result=merge_result,
+                            detail="This proposal conflicts with the latest article version. Resolve it before approval.",
+                        )
+                    merged_snapshot = merge_result["merged"]
+                    base_snapshot = current_snapshot
+
+                proposal.base_title = base_snapshot.title
+                proposal.base_summary = base_snapshot.summary
+                proposal.base_content_md = base_snapshot.content_md
+                proposal.base_updated_at = base_snapshot.updated_at
+                proposal.proposed_title = merged_snapshot.title
+                proposal.proposed_summary = merged_snapshot.summary
+                proposal.proposed_content_md = merged_snapshot.content_md
                 proposal.status = RevisionProposal.Status.APPROVED
                 proposal.reviewer = reviewer
                 proposal.review_note = review_note
                 proposal.reviewed_at = timezone.now()
                 proposal.save(
                     update_fields=[
+                        "base_title",
+                        "base_summary",
+                        "base_content_md",
+                        "base_updated_at",
+                        "proposed_title",
+                        "proposed_summary",
+                        "proposed_content_md",
                         "status",
                         "reviewer",
                         "review_note",
@@ -3187,14 +3436,11 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                     ]
                 )
 
-                article = proposal.article
-                if proposal.proposed_title:
-                    article.title = proposal.proposed_title
-                article.summary = proposal.proposed_summary
-                article.content_md = proposal.proposed_content_md
-                article.last_editor = reviewer
-                article.status = Article.Status.PUBLISHED
-                article.save()
+                self._apply_snapshot_to_article(
+                    article=article,
+                    snapshot=merged_snapshot,
+                    editor=reviewer,
+                )
         elif action == "reject":
             proposal.status = RevisionProposal.Status.REJECTED
             proposal.reviewer = reviewer
@@ -3249,7 +3495,10 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
             review_note=request.data.get("review_note", ""),
         )
         if not ok:
+            if isinstance(detail, Response):
+                return detail
             return Response({"detail": detail}, status=error_status)
+        proposal.refresh_from_db()
         return Response(self.get_serializer(proposal).data)
 
     @action(
@@ -3264,7 +3513,10 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
             review_note=request.data.get("review_note", ""),
         )
         if not ok:
+            if isinstance(detail, Response):
+                return detail
             return Response({"detail": detail}, status=error_status)
+        proposal.refresh_from_db()
         return Response(self.get_serializer(proposal).data)
 
     @action(
@@ -3332,19 +3584,35 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 )
                 continue
 
-            ok, _, detail = self._apply_review_action(
+            ok, error_status, detail = self._apply_review_action(
                 proposal,
                 request.user,
                 action=action_name,
                 review_note=review_note,
             )
             if ok:
+                proposal.refresh_from_db()
                 success_count += 1
                 results.append(
                     {"id": proposal_id, "success": True, "status": proposal.status}
                 )
             else:
-                results.append({"id": proposal_id, "success": False, "detail": detail})
+                if isinstance(detail, Response):
+                    payload = getattr(detail, "data", {}) or {}
+                    result_detail = payload.get("detail") if isinstance(payload, dict) else str(payload)
+                    result_code = payload.get("code") if isinstance(payload, dict) else ""
+                else:
+                    result_detail = detail
+                    result_code = ""
+                results.append(
+                    {
+                        "id": proposal_id,
+                        "success": False,
+                        "detail": result_detail,
+                        "code": result_code,
+                        "status": error_status,
+                    }
+                )
 
         return Response(
             {

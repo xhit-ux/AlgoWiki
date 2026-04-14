@@ -383,6 +383,8 @@ onMounted(async () => {
 }
 
 .home-above-fold {
+  min-height: calc(100vh - 118px);
+  min-height: max(760px, calc(100vh - 118px));
   min-height: max(760px, calc(100svh - 118px));
   display: grid;
   align-content: center;
@@ -874,6 +876,8 @@ onMounted(async () => {
   }
 
   .home-above-fold {
+    min-height: calc(100vh - 112px);
+    min-height: max(700px, calc(100vh - 112px));
     min-height: max(700px, calc(100svh - 112px));
   }
 

@@ -13,6 +13,11 @@ backend/media/
 storage/
 .tmp/
 .tmp*
+.deploy_tmp/
+_deploy_tmp/
+_deploy*/
+local-*/
+*.tar.gz
 .codex-handoff.local.md
 *.sqlite3
 *.pyc

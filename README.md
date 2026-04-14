@@ -47,6 +47,7 @@
   - 结构化分类体系
   - Wiki 文章 CRUD 与可见性控制（`published` / `hidden` / `draft`）
   - 修订提议流程（`pending` / `approved` / `rejected`）
+  - 修订支持基于 `base/current/proposed` 的三方合并：非重叠修改自动 rebase，冲突时返回带标记的合并草稿供人工处理
   - 评论与收藏（star），支持评论回复与用户自助删除评论
 
 - 社区问答
@@ -301,6 +302,7 @@ chmod +x deploy/server-compose-up.sh
 - `web` 服务支持 `APP_IMAGE=<prebuilt-image>`，适合本地构建后上传到服务器
 - `deploy/server-compose-up.sh` 默认使用 `docker compose up -d --no-build`
 - 如果这一次发布不想等服务器从海外镜像仓库慢拉镜像，可直接在本地执行 `scripts/quick-release-to-server.ps1`，走“本地构建 -> 上传镜像包 -> 服务器直接加载”这条链路
+- 如果你要让“下次上线”严格跟随 GitHub 仓库里已经合并到 `main` 的 PR 代码，可在服务器执行 `./deploy/server-update-from-registry.sh --sync-github-branch`；脚本会先查询 GitHub 当前 `main` 的提交，再拉取对应的 `sha-*` 镜像
 - 如果服务器只有 `docker-compose` v1，请优先使用 `deploy/server-compose-up.sh`/`deploy/server-verify.sh`，不要直接手写 `docker-compose up`，否则 `APP_IMAGE` 等变量可能不会按预期生效
 - 容器启动时会自动等待数据库、执行 `check`、`migrate` 和 `collectstatic`
 - `APP_BIND` 默认是 `127.0.0.1`，公网访问应通过 Nginx 转发，而不是直接暴露 8001
@@ -322,6 +324,26 @@ powershell -ExecutionPolicy Bypass -File .\scripts\quick-release-to-server.ps1 `
 - 自动上传镜像包、`docker-compose.server.yml`、`deploy/server-compose-up.sh` 和 `deploy/server-update-from-archive.sh`
 - 然后在服务器执行归档镜像更新
 - 这条链路通常比服务器直接从 `ghcr.io` 拉镜像更快，适合当前过渡期使用
+
+PR 合并后的正式环境更新示例：
+
+```bash
+cd /srv/algowiki
+chmod +x deploy/*.sh
+./deploy/server-update-from-registry.sh --sync-github-branch --dry-run
+./deploy/server-update-from-registry.sh --sync-github-branch
+sleep 25
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+curl -fsS https://www.algowiki.cn/api/health/
+```
+
+说明：
+
+- 先确认 GitHub 上的 PR 已经合并到 `main`
+- 再等待 GitHub Actions 的 `Publish GHCR Image` 变绿
+- `--dry-run` 只显示本次将要上线的 GitHub 提交和镜像，不会改动服务器
+- 正式执行时会把 `APP_IMAGE` 固定到对应的 `sha-*` 镜像，避免“以为部署了最新 main，实际仍沿用旧 tag”
+- 如果想让以后直接执行 `./deploy/server-update-from-registry.sh` 也默认跟随 GitHub 主分支，可在 `deploy/.env.production` 里设置 `DEPLOY_SYNC_GITHUB_BRANCH=1`，并保留 `GITHUB_REPOSITORY=NullResot/AlgoWiki`、`GITHUB_BRANCH=main`
 
 从私有验证库切换到 RDS 的最短路径：
 
@@ -416,6 +438,7 @@ Vite 开发服务器会将 `/api` 代理到 `http://127.0.0.1:8001`。
 - 每个请求都会返回 `X-Request-ID`，建议在排障和用户反馈时一并记录。
 - 发布到 GitHub 前请勿提交 `.env`、数据库文件、`frontend/dist`、`backend/staticfiles`、`backend/media` 中的运行时上传内容，以及 `storage/` 下的日志/导出文件。
 - 若前端出现 `分类加载失败` / `条目加载失败` 且响应为 `500`，通常是数据库结构落后：请在后端目录重新执行一次 `python manage.py migrate`。
+- 并发修订合并依赖迁移 `0031_revisionproposal_base_content_md_and_more`；手动部署后可用 `python manage.py showmigrations wiki` 确认 `0031` 已打勾。
 - 若遇到 `mysqlclient ... is required` 或 `MySQLdb` 版本冲突：
   - 确认使用项目虚拟环境安装依赖：`venv\\Scripts\\python.exe -m pip install -r backend\\requirements.txt`
   - 该项目已内置 PyMySQL 兼容适配，可直接使用 MySQL，无需单独安装 `mysqlclient`。

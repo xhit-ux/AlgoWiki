@@ -1,16 +1,16 @@
 <template>
-  <section class="revision-detail-page" v-if="proposal">
+  <section v-if="proposal" class="revision-detail-page">
     <article class="detail-card">
       <header class="detail-head">
         <div>
-          <h2>{{ proposal.article_title || proposal.proposed_title || "修订审批" }}</h2>
+          <h2>{{ proposal.article_title || proposal.proposed_title || "修订审核" }}</h2>
           <p class="meta">
-            提议人 {{ proposal.proposer?.username || "-" }} · 提交于 {{ formatDateTime(proposal.created_at) }}
+            提交者 {{ proposal.proposer?.username || "-" }} · 提交时间 {{ formatDateTime(proposal.created_at) }}
           </p>
-          <p class="meta">修订备注：{{ proposal.reason || "无" }}</p>
+          <p class="meta">修订说明：{{ proposal.reason || "无" }}</p>
         </div>
         <div class="head-actions">
-          <button class="btn" @click="goBack">返回审核台</button>
+          <button class="btn" @click="goBack">返回审核列表</button>
           <button class="btn" @click="compareMode = !compareMode">
             {{ compareMode ? "返回默认视图" : "切换对比视图" }}
           </button>
@@ -19,7 +19,7 @@
 
       <section class="card preview-card">
         <div class="preview-head">
-          <h3>{{ compareMode ? "对比视图" : "修改后渲染" }}</h3>
+          <h3>{{ compareMode ? "对比预览" : "渲染预览" }}</h3>
           <button
             v-if="compareMode"
             class="btn btn-press"
@@ -30,27 +30,27 @@
             @touchend="setPressingOriginal(false)"
             @touchcancel="setPressingOriginal(false)"
           >
-            {{ pressingOriginal ? "松开返回修改后" : "长按查看原页面" }}
+            {{ pressingOriginal ? "松开返回修改版本" : "长按查看当前线上版本" }}
           </button>
         </div>
-        <div class="meta" v-if="compareMode">
-          当前显示：{{ pressingOriginal ? "原页面渲染结果" : "修改后渲染结果" }}
+        <div v-if="compareMode" class="meta">
+          当前显示：{{ pressingOriginal ? "当前线上版本" : mergeConflict ? "冲突解决稿" : "待审核修订稿" }}
         </div>
         <div class="markdown rendered-area" v-html="activeRenderHtml"></div>
       </section>
 
       <section class="card diff-card">
-        <h3>修订差异（单列）</h3>
-        <p class="meta">绿色为新增，红色为删除；行内改动会使用绿色/红色背景标出。</p>
+        <h3>修订差异</h3>
+        <p class="meta">绿色为新增，红色为删除。</p>
         <div class="diff-render" v-html="diffHtml"></div>
       </section>
 
       <section v-if="proposal.status === 'pending'" class="card review-action-card">
-        <h3>审批操作</h3>
-        <textarea class="textarea" v-model="reviewNote" placeholder="审批备注（可选）"></textarea>
+        <h3>审核操作</h3>
+        <textarea class="textarea" v-model="reviewNote" placeholder="审核备注（可选）"></textarea>
         <div class="review-actions">
           <button class="btn btn-accent" :disabled="submittingReview" @click="approve">
-            {{ submittingReview ? "处理中..." : "通过" }}
+            {{ submittingReview ? "处理中..." : mergeConflict ? "解决冲突并通过" : "通过" }}
           </button>
           <button class="btn" :disabled="submittingReview" @click="reject">
             {{ submittingReview ? "处理中..." : "驳回" }}
@@ -58,19 +58,35 @@
         </div>
       </section>
 
-      <section v-else class="card review-action-card">
-        <h3>审批结果</h3>
+      <section v-if="proposal.status === 'pending' && mergeConflict" class="card review-action-card">
+        <h3>Merge Conflict</h3>
+        <p class="meta">{{ mergeConflict.detail }}</p>
+        <p v-if="mergeConflict.conflicts?.length" class="meta">
+          冲突字段：{{ mergeConflict.conflicts.map((item) => item.field).join(" / ") }}
+        </p>
+        <input class="input" v-model="resolutionForm.title" placeholder="Resolved title" />
+        <textarea class="textarea" v-model="resolutionForm.summary" placeholder="Resolved summary (optional)"></textarea>
+        <textarea
+          class="textarea resolution-textarea"
+          v-model="resolutionForm.content_md"
+          placeholder="Resolve merge conflicts here"
+        ></textarea>
+        <p class="meta">上面已经放入后端生成的合并草稿。删除冲突标记并确认内容后，再点击通过。</p>
+      </section>
+
+      <section v-if="proposal.status !== 'pending'" class="card review-action-card">
+        <h3>审核结果</h3>
         <p class="meta">结果：{{ statusText(proposal.status) }}</p>
-        <p class="meta">审批人：{{ proposal.reviewer?.username || "-" }}</p>
-        <p class="meta">审批时间：{{ formatDateTime(proposal.reviewed_at) }}</p>
-        <p class="meta">审批备注：{{ proposal.review_note || "无" }}</p>
+        <p class="meta">审核人：{{ proposal.reviewer?.username || "-" }}</p>
+        <p class="meta">审核时间：{{ formatDateTime(proposal.reviewed_at) }}</p>
+        <p class="meta">审核备注：{{ proposal.review_note || "无" }}</p>
       </section>
     </article>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import api from "../services/api";
@@ -87,12 +103,22 @@ const reviewNote = ref("");
 const submittingReview = ref(false);
 const compareMode = ref(false);
 const pressingOriginal = ref(false);
+const mergeConflict = ref(null);
+const resolutionForm = reactive({
+  title: "",
+  summary: "",
+  content_md: "",
+  base_updated_at: "",
+});
 
 const activeRenderHtml = computed(() => {
   const item = proposal.value;
   if (!item) return "";
   if (compareMode.value && pressingOriginal.value) {
-    return renderMarkdown(item.article_content_md || "");
+    return renderMarkdown(mergeConflict.value?.current?.content_md || item.article_content_md || "");
+  }
+  if (mergeConflict.value) {
+    return renderMarkdown(resolutionForm.content_md || mergeConflict.value?.merged?.content_md || "");
   }
   return renderMarkdown(item.proposed_content_md || "");
 });
@@ -100,7 +126,9 @@ const activeRenderHtml = computed(() => {
 const diffHtml = computed(() => {
   const item = proposal.value;
   if (!item) return "";
-  return renderUnifiedDiffHtml(item.article_content_md || "", item.proposed_content_md || "");
+  const beforeText = mergeConflict.value?.current?.content_md || item.article_content_md || "";
+  const afterText = mergeConflict.value ? resolutionForm.content_md : (item.proposed_content_md || "");
+  return renderUnifiedDiffHtml(beforeText, afterText);
 });
 
 function formatDateTime(value) {
@@ -131,6 +159,35 @@ function getErrorText(error, fallback = "操作失败") {
   return fallback;
 }
 
+function resetMergeConflict() {
+  mergeConflict.value = null;
+  resolutionForm.title = "";
+  resolutionForm.summary = "";
+  resolutionForm.content_md = "";
+  resolutionForm.base_updated_at = "";
+}
+
+function applyMergeConflict(error) {
+  const payload = error?.response?.data;
+  const merge = payload?.merge;
+  if (error?.response?.status !== 409 || payload?.code !== "revision_merge_conflict" || !merge) {
+    return false;
+  }
+
+  mergeConflict.value = {
+    detail: payload?.detail || "Merge conflict",
+    conflicts: Array.isArray(merge?.conflicts) ? merge.conflicts : [],
+    current: merge?.current || null,
+    merged: merge?.merged || null,
+  };
+  resolutionForm.title = merge?.merged?.title ?? proposal.value?.proposed_title ?? "";
+  resolutionForm.summary = merge?.merged?.summary ?? proposal.value?.proposed_summary ?? "";
+  resolutionForm.content_md = merge?.merged?.content_md ?? proposal.value?.proposed_content_md ?? "";
+  resolutionForm.base_updated_at = merge?.current?.updated_at || "";
+  ui.error(payload?.detail || "修订和当前线上版本冲突，请先解决冲突。");
+  return true;
+}
+
 function goBack() {
   router.push({ name: "review" });
 }
@@ -140,8 +197,9 @@ async function loadProposal() {
     const { data } = await api.get(`/revisions/${route.params.id}/`);
     proposal.value = data;
     reviewNote.value = data.review_note || "";
+    resetMergeConflict();
   } catch (error) {
-    ui.error(getErrorText(error, "审批条目加载失败"));
+    ui.error(getErrorText(error, "审核条目加载失败"));
     goBack();
   }
 }
@@ -150,12 +208,23 @@ async function approve() {
   if (!proposal.value || proposal.value.status !== "pending") return;
   submittingReview.value = true;
   try {
-    const { data } = await api.post(`/revisions/${proposal.value.id}/approve/`, {
+    const payload = {
       review_note: reviewNote.value.trim(),
-    });
+    };
+    if (mergeConflict.value) {
+      payload.resolved_title = resolutionForm.title.trim();
+      payload.resolved_summary = resolutionForm.summary.trim();
+      payload.resolved_content_md = resolutionForm.content_md;
+      payload.resolution_base_updated_at = resolutionForm.base_updated_at || null;
+    }
+    const { data } = await api.post(`/revisions/${proposal.value.id}/approve/`, payload);
     proposal.value = data;
+    resetMergeConflict();
     ui.success("修订已通过");
   } catch (error) {
+    if (applyMergeConflict(error)) {
+      return;
+    }
     ui.error(getErrorText(error, "通过失败"));
   } finally {
     submittingReview.value = false;
@@ -170,6 +239,7 @@ async function reject() {
       review_note: reviewNote.value.trim(),
     });
     proposal.value = data;
+    resetMergeConflict();
     ui.success("修订已驳回");
   } catch (error) {
     ui.error(getErrorText(error, "驳回失败"));
@@ -304,6 +374,10 @@ onMounted(async () => {
 .review-actions {
   display: flex;
   gap: 8px;
+}
+
+.resolution-textarea {
+  min-height: 280px;
 }
 
 @media (max-width: 960px) {

@@ -243,6 +243,12 @@ const editForm = reactive({
   summary: "",
   content_md: "",
 });
+const editBase = reactive({
+  title: "",
+  summary: "",
+  content_md: "",
+  updated_at: "",
+});
 
 const canModerateArticle = computed(() => Boolean(article.value?.can_edit));
 const canDeleteArticle = computed(() => auth.isManager && Boolean(article.value?.id));
@@ -533,6 +539,29 @@ function syncEditForm(data) {
   editForm.title = data?.title || "";
   editForm.summary = data?.summary || "";
   editForm.content_md = data?.content_md || "";
+  editBase.title = data?.title || "";
+  editBase.summary = data?.summary || "";
+  editBase.content_md = data?.content_md || "";
+  editBase.updated_at = data?.updated_at || "";
+}
+
+function applyMergeConflictToEditor(error) {
+  const payload = error?.response?.data;
+  const merge = payload?.merge;
+  if (error?.response?.status !== 409 || payload?.code !== "revision_merge_conflict" || !merge) {
+    return false;
+  }
+
+  editForm.title = merge?.merged?.title ?? editForm.title;
+  editForm.summary = merge?.merged?.summary ?? editForm.summary;
+  editForm.content_md = merge?.merged?.content_md ?? editForm.content_md;
+  editBase.title = merge?.current?.title ?? editBase.title;
+  editBase.summary = merge?.current?.summary ?? editBase.summary;
+  editBase.content_md = merge?.current?.content_md ?? editBase.content_md;
+  editBase.updated_at = merge?.current?.updated_at ?? editBase.updated_at;
+  showEditor.value = true;
+  ui.error(payload?.detail || "条目已有新版本，已把合并结果放回编辑器，请处理冲突标记后重新提交。");
+  return true;
 }
 
 async function loadComments() {
@@ -668,6 +697,10 @@ async function saveArticleEdit() {
   try {
     const payload = {
       article: article.value.id,
+      base_title: editBase.title,
+      base_summary: editBase.summary,
+      base_content_md: editBase.content_md,
+      base_updated_at: editBase.updated_at || null,
       proposed_title: editForm.title.trim(),
       proposed_summary: editForm.summary.trim(),
       proposed_content_md: editForm.content_md,
@@ -683,6 +716,9 @@ async function saveArticleEdit() {
       await loadArticle();
     }
   } catch (error) {
+    if (applyMergeConflictToEditor(error)) {
+      return;
+    }
     ui.error(getErrorText(error, "提交失败"));
   } finally {
     savingEdit.value = false;

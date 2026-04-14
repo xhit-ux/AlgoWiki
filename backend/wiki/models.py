@@ -205,12 +205,12 @@ class RevisionProposal(TimeStampedModel):
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
 
-    article = models.ForeignKey(
-        Article, related_name="revision_proposals", on_delete=models.CASCADE
-    )
-    proposer = models.ForeignKey(
-        "User", related_name="revision_proposals", on_delete=models.CASCADE
-    )
+    article = models.ForeignKey(Article, related_name="revision_proposals", on_delete=models.CASCADE)
+    proposer = models.ForeignKey("User", related_name="revision_proposals", on_delete=models.CASCADE)
+    base_title = models.CharField(max_length=220, blank=True, default="")
+    base_summary = models.TextField(blank=True, default="")
+    base_content_md = models.TextField(blank=True, default="")
+    base_updated_at = models.DateTimeField(null=True, blank=True)
     proposed_title = models.CharField(max_length=220, blank=True)
     proposed_summary = models.TextField(blank=True)
     proposed_content_md = models.TextField()
