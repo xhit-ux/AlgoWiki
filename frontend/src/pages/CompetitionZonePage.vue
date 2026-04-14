@@ -10,6 +10,14 @@
     </header>
 
     <section v-if="activeBuiltinView === 'schedule'" class="zone-block">
+      <div class="zone-contributors">
+        <ContributorsPanel
+          :contributors="schedulePageContributors"
+          title="本页录入者"
+          creator-badge-text="录入者"
+          empty-text="当前筛选下暂无录入者"
+        />
+      </div>
       <div class="toolbar">
         <div class="year-tabs">
           <button
@@ -72,10 +80,7 @@
             <tr v-for="row in scheduleRows" :key="row.id" :class="{ 'schedule-row--muted': row.is_past }">
               <td>{{ formatDate(row.event_date) }}</td>
               <td>{{ row.competition_time_range || "-" }}</td>
-              <td class="schedule-table__title">
-                <div class="schedule-table__title-text">{{ row.competition_type || "-" }}</div>
-                <ContributorsPanel class="schedule-table__contributors" :contributors="row.contributors" compact />
-              </td>
+              <td class="schedule-table__title">{{ row.competition_type || "-" }}</td>
               <td>{{ row.location || "-" }}</td>
               <td>{{ row.qq_group || "-" }}</td>
               <td>
@@ -99,52 +104,62 @@
       </div>
     </section>
 
-    <section v-else-if="activeBuiltinView === 'notice'" class="zone-block notice-layout">
-      <aside class="notice-filter">
-        <h3>赛事筛选</h3>
-        <div class="chips">
-          <button
-            v-for="item in seriesFilterOptions"
-            :key="item.key"
-            type="button"
-            class="btn btn-mini"
-            :class="{ 'btn-accent': item.key === activeSeries }"
-            @click="activeSeries = item.key"
-          >
-            {{ item.name }}
-          </button>
-        </div>
-        <template v-if="needsYearStage">
-          <label class="filter-label">年份</label>
-          <div class="chips">
-            <button
-              v-for="year in seriesYears"
-              :key="`notice-year-${year}`"
-              type="button"
-              class="btn btn-mini"
-              :class="{ 'btn-accent': String(year) === String(activeNoticeYear) }"
-              @click="activeNoticeYear = year"
-            >
-              {{ year === FILTER_ALL ? STAGE_LABELS.all : year }}
-            </button>
-          </div>
-          <label class="filter-label">阶段</label>
-          <div class="chips">
-            <button
-              v-for="stage in stageOptions"
-              :key="stage.key"
-              type="button"
-              class="btn btn-mini"
-              :class="{ 'btn-accent': stage.key === activeStage }"
-              @click="activeStage = stage.key"
-            >
-              {{ stage.name }}
-            </button>
-          </div>
-        </template>
-      </aside>
+    <section v-else-if="activeBuiltinView === 'notice'" class="zone-block">
+      <div class="zone-contributors">
+        <ContributorsPanel
+          :contributors="noticePageContributors"
+          title="本页录入者"
+          creator-badge-text="录入者"
+          empty-text="当前筛选下暂无录入者"
+        />
+      </div>
 
-      <div class="notice-main">
+      <div class="notice-layout">
+        <aside class="notice-filter">
+          <h3>赛事筛选</h3>
+          <div class="chips">
+            <button
+              v-for="item in seriesFilterOptions"
+              :key="item.key"
+              type="button"
+              class="btn btn-mini"
+              :class="{ 'btn-accent': item.key === activeSeries }"
+              @click="activeSeries = item.key"
+            >
+              {{ item.name }}
+            </button>
+          </div>
+          <template v-if="needsYearStage">
+            <label class="filter-label">年份</label>
+            <div class="chips">
+              <button
+                v-for="year in seriesYears"
+                :key="`notice-year-${year}`"
+                type="button"
+                class="btn btn-mini"
+                :class="{ 'btn-accent': String(year) === String(activeNoticeYear) }"
+                @click="activeNoticeYear = year"
+              >
+                {{ year === FILTER_ALL ? STAGE_LABELS.all : year }}
+              </button>
+            </div>
+            <label class="filter-label">阶段</label>
+            <div class="chips">
+              <button
+                v-for="stage in stageOptions"
+                :key="stage.key"
+                type="button"
+                class="btn btn-mini"
+                :class="{ 'btn-accent': stage.key === activeStage }"
+                @click="activeStage = stage.key"
+              >
+                {{ stage.name }}
+              </button>
+            </div>
+          </template>
+        </aside>
+
+        <div class="notice-main">
         <section v-if="canSubmitCompetition" ref="noticeEditorRef" class="editor-card">
           <h2>{{ editingNoticeId ? "修改赛事公告" : canManageCompetition ? "发布赛事公告" : "提交赛事公告" }}</h2>
           <div class="form-grid form-grid--notice">
@@ -208,16 +223,16 @@
           </div>
         </div>
 
-        <article v-if="activeNotice" class="detail-card">
-          <h2>{{ activeNotice.title }}</h2>
-          <p class="meta">
-            {{ seriesText(activeNotice.series) }}
-            <template v-if="isSeriesWithYear(activeNotice.series)"> · {{ activeNotice.year }} · {{ stageText(activeNotice.stage) }}</template>
-            · {{ formatDateTime(activeNotice.published_at || activeNotice.created_at) }}
-          </p>
-          <ContributorsPanel class="notice-detail__contributors" :contributors="activeNotice.contributors" compact />
-          <section class="markdown" v-html="renderMarkdown(activeNotice.content_md || '')"></section>
-        </article>
+          <article v-if="activeNotice" class="detail-card">
+            <h2>{{ activeNotice.title }}</h2>
+            <p class="meta">
+              {{ seriesText(activeNotice.series) }}
+              <template v-if="isSeriesWithYear(activeNotice.series)"> · {{ activeNotice.year }} · {{ stageText(activeNotice.stage) }}</template>
+              · {{ formatDateTime(activeNotice.published_at || activeNotice.created_at) }}
+            </p>
+            <section class="markdown" v-html="renderMarkdown(activeNotice.content_md || '')"></section>
+          </article>
+        </div>
       </div>
     </section>
 
@@ -242,6 +257,7 @@ import api, { isRequestCanceled } from "../services/api";
 import { renderMarkdown } from "../services/markdown";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
+import { aggregateCreatorContributors } from "../utils/contributors";
 import CompetitionCalendarPage from "./CompetitionCalendarPage.vue";
 import ExtraPage from "./ExtraPage.vue";
 import QaPage from "./QaPage.vue";
@@ -321,6 +337,15 @@ const noticeEditorRef = ref(null);
 const noticeForm = reactive({ title: "", content_md: "", series: "icpc", year: new Date().getFullYear(), stage: "regional", is_visible: true });
 
 const activeNotice = computed(() => noticeRows.value.find((item) => item.id === activeNoticeId.value) || null);
+const schedulePageContributors = computed(() =>
+  aggregateCreatorContributors(scheduleRows.value, { userKey: "created_by" }),
+);
+const noticePageContributors = computed(() =>
+  aggregateCreatorContributors(noticeRows.value, {
+    userKey: "created_by",
+    getTime: (item) => item?.published_at || item?.created_at || null,
+  }),
+);
 const seriesFilterOptions = computed(() => [{ key: FILTER_ALL, name: STAGE_LABELS.all }, ...seriesOptions.value]);
 const needsYearStage = computed(() => activeSeries.value === FILTER_ALL || isSeriesWithYear(activeSeries.value));
 const seriesYears = computed(() => {
@@ -762,6 +787,10 @@ onMounted(async () => {
 .zone-description :deep(a) { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
 .meta { color: var(--muted); }
 .zone-block { display: grid; gap: 16px; }
+.zone-contributors {
+  border-top: 1px solid color-mix(in srgb, var(--hairline) 84%, transparent);
+  padding-top: 18px;
+}
 .toolbar, .action-row, .table-actions, .year-tabs, .chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .toolbar { justify-content: space-between; }
 .editor-card, .list-card, .detail-card, .notice-filter, .schedule-table-wrap { border-top: 1px solid color-mix(in srgb, var(--hairline) 84%, transparent); padding-top: 18px; }
@@ -804,18 +833,6 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--text);
   min-width: 220px;
-}
-
-.schedule-table__title-text {
-  margin-bottom: 8px;
-}
-
-.schedule-table__contributors {
-  min-width: 180px;
-}
-
-.notice-detail__contributors {
-  margin: 12px 0 14px;
 }
 
 .schedule-row--muted {

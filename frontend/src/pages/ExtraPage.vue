@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="extra-layout">
     <article class="extra-main" v-if="isTricksPanel">
       <div class="section-title">trick技巧</div>
@@ -9,6 +9,14 @@
             : "提交后需管理员审核通过才会对全部用户展示；支持 Markdown 文本，不提供图片上传。"
         }}
       </p>
+      <section class="section-contributors-card">
+        <ContributorsPanel
+          :contributors="trickPageContributors"
+          title="本页录入者"
+          creator-badge-text="录入者"
+          empty-text="当前筛选下暂无录入者"
+        />
+      </section>
 
       <section class="trick-submit card" v-if="auth.isAuthenticated">
         <div class="trick-submit-head">
@@ -179,11 +187,6 @@
             <span>发布者：{{ item.author?.username || "-" }}</span>
             <span>发布时间：{{ formatTime(item.created_at) }}</span>
           </div>
-          <ContributorsPanel
-            class="trick-contributors"
-            :contributors="item.contributors"
-            compact
-          />
           <div class="term-selected" v-if="item.terms?.length">
             <span
               v-for="term in sortTermItems(item.terms)"
@@ -472,6 +475,7 @@ import api from "../services/api";
 import { renderInlineMarkdown, renderMarkdown } from "../services/markdown";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
+import { aggregateCreatorContributors } from "../utils/contributors";
 
 const props = defineProps({
   slug: {
@@ -499,6 +503,7 @@ const submitEditorExpanded = ref(false);
 const editEditorExpanded = ref(false);
 const editTagEditorVisible = ref(false);
 const ownPendingTermNames = ref([]);
+const trickPageContributors = ref([]);
 
 const trickForm = reactive({
   title: "",
@@ -684,6 +689,20 @@ function unpackListPayload(data, currentLength = 0) {
   };
 }
 
+function normalizeApiNextPath(nextValue) {
+  if (!nextValue) return "";
+  try {
+    const nextUrl = new URL(String(nextValue), window.location.origin);
+    let path = nextUrl.pathname || "";
+    if (path.startsWith("/api/")) {
+      path = path.slice(4);
+    }
+    return `${path}${nextUrl.search}`;
+  } catch {
+    return "";
+  }
+}
+
 function getErrorText(error, fallback = "操作失败") {
   const payload = error?.response?.data;
   if (!payload) return fallback;
@@ -702,6 +721,7 @@ async function loadPage() {
   if (isTricksPanel.value) return;
   page.value = null;
   pageExists.value = false;
+  trickPageContributors.value = [];
   try {
     const { data } = await api.get(`/pages/${currentPageSlug.value}/`);
     page.value = data;
@@ -768,44 +788,71 @@ async function savePage() {
   }
 }
 
-async function loadTricks(pageNo = 1, append = false) {
+function buildTrickListParams(pageNo = 1) {
   const params = {
     page: pageNo,
     order: "created_newest",
   };
   if (trickFilters.search.trim()) params.search = trickFilters.search.trim();
   if (trickFilters.termId) params.term = trickFilters.termId;
+  return params;
+}
+
+function buildTrickContributorQuery() {
+  const params = new URLSearchParams({
+    page_size: "200",
+    order: "created_newest",
+  });
+  if (trickFilters.search.trim()) {
+    params.set("search", trickFilters.search.trim());
+  }
+  if (trickFilters.termId) {
+    params.set("term", String(trickFilters.termId));
+  }
+  return `/tricks/?${params.toString()}`;
+}
+
+async function loadTrickPageContributors() {
+  const rows = [];
+  let nextPath = buildTrickContributorQuery();
+
+  try {
+    while (nextPath) {
+      const { data } = await api.get(nextPath);
+      const parsed = unpackListPayload(data, rows.length);
+      rows.push(...parsed.results);
+      nextPath = normalizeApiNextPath(parsed.next);
+    }
+    trickPageContributors.value = aggregateCreatorContributors(rows, {
+      userKey: "author",
+    });
+  } catch {
+    trickPageContributors.value = [];
+  }
+}
+
+async function loadTricks(pageNo = 1, append = false) {
+  const params = buildTrickListParams(pageNo);
   const { data } = await api.get("/tricks/", { params });
   const parsed = unpackListPayload(data, tricks.value.length);
   tricks.value = append ? [...tricks.value, ...parsed.results] : parsed.results;
   trickMeta.count = parsed.count;
   trickMeta.next = parsed.next;
+  if (!append && pageNo === 1) {
+    await loadTrickPageContributors();
+  }
 }
 
 async function loadTrickTerms() {
   const all = [];
   let nextPath = "/trick-terms/?page_size=200";
 
-  const normalizeNextPath = (nextValue) => {
-    if (!nextValue) return "";
-    try {
-      const nextUrl = new URL(String(nextValue), window.location.origin);
-      let path = nextUrl.pathname || "";
-      if (path.startsWith("/api/")) {
-        path = path.slice(4);
-      }
-      return `${path}${nextUrl.search}`;
-    } catch {
-      return "";
-    }
-  };
-
   try {
     while (nextPath) {
       const { data } = await api.get(nextPath);
       const parsed = unpackListPayload(data, all.length);
       all.push(...parsed.results);
-      nextPath = normalizeNextPath(parsed.next);
+      nextPath = normalizeApiNextPath(parsed.next);
     }
     trickTerms.value = all;
   } catch (error) {
@@ -823,26 +870,12 @@ async function loadOwnPendingTermNames() {
   const all = [];
   let nextPath = "/trick-term-suggestions/?status=pending&page_size=200";
 
-  const normalizeNextPath = (nextValue) => {
-    if (!nextValue) return "";
-    try {
-      const nextUrl = new URL(String(nextValue), window.location.origin);
-      let path = nextUrl.pathname || "";
-      if (path.startsWith("/api/")) {
-        path = path.slice(4);
-      }
-      return `${path}${nextUrl.search}`;
-    } catch {
-      return "";
-    }
-  };
-
   try {
     while (nextPath) {
       const { data } = await api.get(nextPath);
       const parsed = unpackListPayload(data, all.length);
       all.push(...parsed.results);
-      nextPath = normalizeNextPath(parsed.next);
+      nextPath = normalizeApiNextPath(parsed.next);
     }
 
     const uniqueNames = [];
@@ -1440,8 +1473,8 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
-.trick-contributors {
-  margin-bottom: 10px;
+.section-contributors-card {
+  margin-top: 12px;
 }
 
 .trick-action-row {

@@ -6,7 +6,7 @@
       :class="{ 'is-open': expanded }"
       @click="expanded = !expanded"
     >
-      <span class="contributors-toggle-title">贡献者</span>
+      <span class="contributors-toggle-title">{{ title }}</span>
       <span class="contributors-toggle-count">{{ countLabel }}</span>
       <span class="contributors-toggle-icon" aria-hidden="true">{{ expanded ? "▾" : "▸" }}</span>
     </button>
@@ -20,7 +20,7 @@
         >
           <div class="contributors-item-head">
             <strong>{{ item.user?.username || "-" }}</strong>
-            <span v-if="item.is_creator" class="contributors-badge">创建者</span>
+            <span v-if="item.is_creator" class="contributors-badge">{{ creatorBadgeText }}</span>
           </div>
           <p class="contributors-item-meta">
             {{ contributorSummaryText(item) }}
@@ -36,6 +36,10 @@
 import { computed, ref } from "vue";
 
 const props = defineProps({
+  title: {
+    type: String,
+    default: "贡献者",
+  },
   contributors: {
     type: Array,
     default: () => [],
@@ -47,6 +51,10 @@ const props = defineProps({
   emptyText: {
     type: String,
     default: "暂无贡献者记录",
+  },
+  creatorBadgeText: {
+    type: String,
+    default: "创建者",
   },
   defaultExpanded: {
     type: Boolean,
@@ -71,7 +79,10 @@ function formatTime(value) {
 
 function contributorSummaryText(item) {
   const parts = [];
-  if (item?.is_creator) {
+  const createdEntryCount = Number(item?.created_entry_count || 0);
+  if (createdEntryCount > 0) {
+    parts.push(`创建条目 ${createdEntryCount} 条`);
+  } else if (item?.is_creator) {
     parts.push("创建条目");
   }
   if (Number(item?.approved_revision_count || 0) > 0) {

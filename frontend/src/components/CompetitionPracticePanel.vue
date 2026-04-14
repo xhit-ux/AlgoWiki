@@ -75,6 +75,15 @@
       </div>
     </section>
 
+    <section class="card practice-contributors-card">
+      <ContributorsPanel
+        :contributors="practicePageContributors"
+        title="本页录入者"
+        creator-badge-text="录入者"
+        empty-text="当前筛选下暂无录入者"
+      />
+    </section>
+
     <section v-if="auth.isManager" class="card practice-review">
       <header class="review-head">
         <div>
@@ -178,10 +187,7 @@
             <td data-label="年份">{{ row.year }}</td>
             <td data-label="赛事体系">{{ labelOf(seriesOptions, row.series) }}</td>
             <td data-label="赛事类型">{{ labelOf(stageOptions, row.stage) }}</td>
-            <td class="practice-short-name-cell" data-label="简称">
-              <div>{{ row.short_name || "-" }}</div>
-              <ContributorsPanel class="practice-row-contributors" :contributors="row.contributors" compact />
-            </td>
+            <td class="practice-short-name-cell" data-label="简称">{{ row.short_name || "-" }}</td>
             <td class="practice-official-cell" data-label="官方名称">
               <a v-if="row.official_url" :href="row.official_url" target="_blank" rel="noopener noreferrer" class="table-link">
                 {{ row.official_name || row.official_url }}
@@ -237,6 +243,7 @@ import { useRequestControllers } from "../composables/useRequestControllers";
 import api, { isRequestCanceled } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
+import { aggregateCreatorContributors } from "../utils/contributors";
 
 const auth = useAuthStore();
 const ui = useUiStore();
@@ -282,6 +289,9 @@ const proposalForm = reactive({
 });
 
 const yearOptions = computed(() => [FILTER_ALL, ...taxonomy.years]);
+const practicePageContributors = computed(() =>
+  aggregateCreatorContributors(rows.value, { userKey: "created_by" }),
+);
 
 function labelOf(options, key) {
   return options.find((item) => item.key === key)?.name || key || "-";
@@ -508,6 +518,7 @@ onMounted(async () => {
 .practice-page,
 .practice-toolbar,
 .practice-meta,
+.practice-contributors-card,
 .practice-editor,
 .practice-review {
   display: grid;
@@ -516,6 +527,7 @@ onMounted(async () => {
 
 .practice-toolbar,
 .practice-meta,
+.practice-contributors-card,
 .practice-login-note,
 .practice-review,
 .practice-editor {
@@ -630,10 +642,6 @@ onMounted(async () => {
 
 .practice-short-name-cell {
   min-width: 180px;
-}
-
-.practice-row-contributors {
-  margin-top: 8px;
 }
 
 .practice-links,
