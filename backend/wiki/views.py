@@ -284,6 +284,50 @@ def bulk_notify_users(
     return len(items)
 
 
+def append_review_note_to_instance(instance, reviewer, raw_note, *, field_name="review_note"):
+    note = str(raw_note or "").strip()
+    if not note:
+        return None, "note is required."
+    if not hasattr(instance, field_name):
+        return None, "This item does not support review notes."
+
+    existing = str(getattr(instance, field_name, "") or "").strip()
+    timestamp = timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M")
+    username = getattr(reviewer, "username", "") or "admin"
+    entry = f"[{timestamp} {username}] {note}"
+    setattr(instance, field_name, f"{existing}\n{entry}" if existing else entry)
+    instance.save(update_fields=[field_name, "updated_at"])
+    return instance, ""
+
+
+class ReviewNoteActionMixin:
+    review_note_field_name = "review_note"
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[AdminOrSuperAdmin],
+        url_path="append-review-note",
+    )
+    def append_review_note(self, request, pk=None):
+        item = self.get_object()
+        item, detail = append_review_note_to_instance(
+            item,
+            request.user,
+            request.data.get("note", request.data.get("review_note", "")),
+            field_name=self.review_note_field_name,
+        )
+        if not item:
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+        log_event(
+            request.user,
+            ContributionEvent.EventType.ADMIN,
+            item,
+            {"action": "append_review_note"},
+        )
+        return Response(self.get_serializer(item).data)
+
+
 DELETED_USER_PLACEHOLDER_USERNAME = "system_deleted_user"
 
 
@@ -2550,10 +2594,10 @@ class ArticleViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         )
 
 
-class ArticleCommentViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class ArticleCommentViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = ArticleCommentSerializer
     queryset = ArticleComment.objects.select_related(
-        "article", "author", "parent"
+        "article", "author", "parent", "reviewer"
     ).all()
     throttle_action_classes = {
         "create": [ContentCreateRateThrottle],
@@ -2565,7 +2609,7 @@ class ArticleCommentViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "bulk_hide":
             return [AdminOrSuperAdmin()]
-        if self.action in {"approve", "reject", "bulk_review"}:
+        if self.action in {"approve", "reject", "bulk_review", "append_review_note"}:
             return [AdminOrSuperAdmin()]
         if self.action in {"list", "retrieve"}:
             return [AllowAny()]
@@ -2731,7 +2775,19 @@ class ArticleCommentViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         comment.status = ArticleComment.Status.HIDDEN
-        comment.save(update_fields=["status", "updated_at"])
+        now = timezone.now()
+        comment.reviewer = reviewer
+        comment.review_note = review_note
+        comment.reviewed_at = now
+        comment.save(
+            update_fields=[
+                "status",
+                "reviewer",
+                "review_note",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
         if manager:
             log_event(
                 request.user,
@@ -2987,7 +3043,7 @@ class ArticleCommentViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         )
 
 
-class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class RevisionProposalViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = RevisionProposalSerializer
     queryset = RevisionProposal.objects.select_related(
         "article", "proposer", "reviewer", "article__category"
@@ -3625,10 +3681,10 @@ class RevisionProposalViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         )
 
 
-class IssueTicketViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class IssueTicketViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = IssueTicketSerializer
     queryset = IssueTicket.objects.select_related(
-        "author", "assignee", "related_article"
+        "author", "assignee", "related_article", "reviewer"
     ).all()
     permission_classes = [AuthenticatedAndNotBanned]
     throttle_action_classes = {
@@ -3639,7 +3695,7 @@ class IssueTicketViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     }
 
     def get_permissions(self):
-        if self.action in {"set_status", "bulk_set_status"}:
+        if self.action in {"set_status", "bulk_set_status", "append_review_note"}:
             return [AdminOrSuperAdmin()]
         return super().get_permissions()
 
@@ -3816,12 +3872,20 @@ class IssueTicketViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
             ticket.resolution_note = (
                 "" if resolution_note is None else str(resolution_note)
             )
+            ticket.review_note = ticket.resolution_note
+
+        if new_status != IssueTicket.Status.PENDING:
+            ticket.reviewer = operator
+            ticket.reviewed_at = timezone.now()
 
         update_fields = ["status", "updated_at"]
         if assign_to_given:
             update_fields.append("assignee")
         if resolution_note_given:
             update_fields.append("resolution_note")
+            update_fields.append("review_note")
+        if new_status != IssueTicket.Status.PENDING:
+            update_fields.extend(["reviewer", "reviewed_at"])
         ticket.save(update_fields=update_fields)
 
         payload = {"action": "update_issue_status", "status": ticket.status}
@@ -4033,10 +4097,12 @@ class IssueTicketViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         )
 
 
-class TrickEntryViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = TrickEntrySerializer
     queryset = (
-        TrickEntry.objects.select_related("author").prefetch_related("terms").all()
+        TrickEntry.objects.select_related("author", "reviewer")
+        .prefetch_related("terms")
+        .all()
     )
     throttle_action_classes = {
         "create": [ContentCreateRateThrottle],
@@ -4143,7 +4209,13 @@ class TrickEntryViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 if is_direct_publish
                 else TrickEntry.Status.PENDING
             )
-            entry = serializer.save(author=request.user, status=next_status)
+            entry = serializer.save(
+                author=request.user,
+                status=next_status,
+                reviewer=request.user if is_direct_publish else None,
+                review_note="manager_direct_publish" if is_direct_publish else "",
+                reviewed_at=timezone.now() if is_direct_publish else None,
+            )
             log_event(
                 request.user,
                 (
@@ -4190,7 +4262,20 @@ class TrickEntryViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
             elif is_manager(request.user):
                 next_status = TrickEntry.Status.APPROVED
 
-            serializer.save(status=next_status)
+            serializer.save(
+                status=next_status,
+                reviewer=request.user if next_status == TrickEntry.Status.APPROVED else None,
+                review_note=(
+                    "manager_direct_publish"
+                    if next_status == TrickEntry.Status.APPROVED and is_manager(request.user)
+                    else ""
+                ),
+                reviewed_at=(
+                    timezone.now()
+                    if next_status == TrickEntry.Status.APPROVED and is_manager(request.user)
+                    else None
+                ),
+            )
             log_event(
                 request.user,
                 (
@@ -4240,18 +4325,34 @@ class TrickEntryViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     def set_status(self, request, pk=None):
         entry = self.get_object()
         next_status = request.data.get("status", "").strip()
+        review_note = str(request.data.get("review_note", "") or "").strip()
         if next_status not in dict(TrickEntry.Status.choices):
             return Response(
                 {"detail": "Invalid status."}, status=status.HTTP_400_BAD_REQUEST
             )
 
         entry.status = next_status
-        entry.save(update_fields=["status", "updated_at"])
+        entry.reviewer = request.user
+        entry.review_note = review_note
+        entry.reviewed_at = timezone.now()
+        entry.save(
+            update_fields=[
+                "status",
+                "reviewer",
+                "review_note",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
         log_event(
             request.user,
             ContributionEvent.EventType.ADMIN,
             entry,
-            {"action": "moderate_trick_entry", "status": next_status},
+            {
+                "action": "moderate_trick_entry",
+                "status": next_status,
+                "review_note": review_note[:500],
+            },
         )
         return Response(self.get_serializer(entry).data)
 
@@ -4288,7 +4389,7 @@ class TrickTermViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         return queryset.order_by("name")
 
 
-class TrickTermSuggestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class TrickTermSuggestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = TrickTermSuggestionSerializer
     queryset = (
         TrickTermSuggestion.objects.select_related("proposer", "reviewer")
@@ -4359,7 +4460,7 @@ class TrickTermSuggestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     def set_status(self, request, pk=None):
         suggestion = self.get_object()
         next_status = str(request.data.get("status", "")).strip()
-        review_note = str(request.data.get("review_note", "") or "").strip()[:255]
+        review_note = str(request.data.get("review_note", "") or "").strip()
         if next_status not in dict(TrickTermSuggestion.Status.choices):
             return Response(
                 {"detail": "Invalid status."}, status=status.HTTP_400_BAD_REQUEST
@@ -4403,9 +4504,9 @@ class TrickTermSuggestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         return Response(self.get_serializer(suggestion).data)
 
 
-class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class QuestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = QuestionSerializer
-    queryset = Question.objects.select_related("author", "category").annotate(
+    queryset = Question.objects.select_related("author", "category", "reviewer").annotate(
         answers_count=Count("answers")
     )
     throttle_action_classes = {
@@ -4416,7 +4517,7 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     }
 
     def get_permissions(self):
-        if self.action in {"approve", "reject", "bulk_moderate"}:
+        if self.action in {"approve", "reject", "bulk_moderate", "append_review_note"}:
             return [AdminOrSuperAdmin()]
         if self.action in {"list", "retrieve"}:
             return [AllowAny()]
@@ -4563,9 +4664,10 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         )
         return Response(serializer.data)
 
-    def _apply_question_moderation(self, question, operator, action):
+    def _apply_question_moderation(self, question, operator, action, review_note=""):
         action = (action or "").strip().lower()
         manager = is_manager(operator)
+        review_note = "" if review_note is None else str(review_note)
 
         if action == "close":
             if question.status not in {Question.Status.OPEN, Question.Status.CLOSED}:
@@ -4602,7 +4704,19 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 return False, status.HTTP_403_FORBIDDEN, "No permission."
             question.status = Question.Status.OPEN
             question.auto_close_at = build_question_auto_close_at()
-            question.save(update_fields=["status", "auto_close_at", "updated_at"])
+            question.reviewer = operator
+            question.review_note = review_note
+            question.reviewed_at = timezone.now()
+            question.save(
+                update_fields=[
+                    "status",
+                    "auto_close_at",
+                    "reviewer",
+                    "review_note",
+                    "reviewed_at",
+                    "updated_at",
+                ]
+            )
             log_event(
                 operator,
                 (
@@ -4630,7 +4744,19 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 )
             question.status = Question.Status.OPEN
             question.auto_close_at = build_question_auto_close_at()
-            question.save(update_fields=["status", "auto_close_at", "updated_at"])
+            question.reviewer = operator
+            question.review_note = review_note
+            question.reviewed_at = timezone.now()
+            question.save(
+                update_fields=[
+                    "status",
+                    "auto_close_at",
+                    "reviewer",
+                    "review_note",
+                    "reviewed_at",
+                    "updated_at",
+                ]
+            )
             log_event(
                 operator,
                 ContributionEvent.EventType.ADMIN,
@@ -4663,7 +4789,19 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 )
             question.status = Question.Status.HIDDEN
             question.auto_close_at = None
-            question.save(update_fields=["status", "auto_close_at", "updated_at"])
+            question.reviewer = operator
+            question.review_note = review_note
+            question.reviewed_at = timezone.now()
+            question.save(
+                update_fields=[
+                    "status",
+                    "auto_close_at",
+                    "reviewer",
+                    "review_note",
+                    "reviewed_at",
+                    "updated_at",
+                ]
+            )
             log_event(
                 operator,
                 ContributionEvent.EventType.ADMIN,
@@ -4768,7 +4906,7 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         question = self.get_object()
         ok, error_status, detail = self._apply_question_moderation(
-            question, request.user, "approve"
+            question, request.user, "approve", review_note=request.data.get("review_note", "")
         )
         if not ok:
             return Response({"detail": detail}, status=error_status)
@@ -4778,7 +4916,7 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     def reject(self, request, pk=None):
         question = self.get_object()
         ok, error_status, detail = self._apply_question_moderation(
-            question, request.user, "reject"
+            question, request.user, "reject", review_note=request.data.get("review_note", "")
         )
         if not ok:
             return Response({"detail": detail}, status=error_status)
@@ -4866,7 +5004,10 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 continue
 
             ok, _, detail = self._apply_question_moderation(
-                question, request.user, action_name
+                question,
+                request.user,
+                action_name,
+                review_note=request.data.get("review_note", ""),
             )
             if ok:
                 success_count += 1
@@ -4916,10 +5057,10 @@ class QuestionViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class AnswerViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
     serializer_class = AnswerSerializer
     queryset = Answer.objects.select_related(
-        "author", "question", "question__author"
+        "author", "question", "question__author", "reviewer"
     ).all()
     throttle_action_classes = {
         "create": [ContentCreateRateThrottle],
@@ -4929,7 +5070,7 @@ class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     }
 
     def get_permissions(self):
-        if self.action in {"approve", "reject", "bulk_moderate"}:
+        if self.action in {"approve", "reject", "bulk_moderate", "append_review_note"}:
             return [AdminOrSuperAdmin()]
         if self.action in {"list", "retrieve"}:
             return [AllowAny()]
@@ -5059,8 +5200,9 @@ class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
         )
         return Response(serializer.data)
 
-    def _apply_answer_moderation(self, answer, operator, action):
+    def _apply_answer_moderation(self, answer, operator, action, review_note=""):
         action = (action or "").strip().lower()
+        review_note = "" if review_note is None else str(review_note)
         if not is_manager(operator):
             return False, status.HTTP_403_FORBIDDEN, "Only admins can moderate answers."
 
@@ -5070,9 +5212,20 @@ class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                     False,
                     status.HTTP_400_BAD_REQUEST,
                     "Answer is not pending review.",
-                )
+            )
             answer.status = Answer.Status.VISIBLE
-            answer.save(update_fields=["status", "updated_at"])
+            answer.reviewer = operator
+            answer.review_note = review_note
+            answer.reviewed_at = timezone.now()
+            answer.save(
+                update_fields=[
+                    "status",
+                    "reviewer",
+                    "review_note",
+                    "reviewed_at",
+                    "updated_at",
+                ]
+            )
             log_event(
                 operator,
                 ContributionEvent.EventType.ADMIN,
@@ -5096,10 +5249,22 @@ class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                     False,
                     status.HTTP_400_BAD_REQUEST,
                     "Answer is not pending review.",
-                )
+            )
             answer.status = Answer.Status.HIDDEN
             answer.is_accepted = False
-            answer.save(update_fields=["status", "is_accepted", "updated_at"])
+            answer.reviewer = operator
+            answer.review_note = review_note
+            answer.reviewed_at = timezone.now()
+            answer.save(
+                update_fields=[
+                    "status",
+                    "is_accepted",
+                    "reviewer",
+                    "review_note",
+                    "reviewed_at",
+                    "updated_at",
+                ]
+            )
             log_event(
                 operator,
                 ContributionEvent.EventType.ADMIN,
@@ -5194,7 +5359,7 @@ class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         answer = self.get_object()
         ok, error_status, detail = self._apply_answer_moderation(
-            answer, request.user, "approve"
+            answer, request.user, "approve", review_note=request.data.get("review_note", "")
         )
         if not ok:
             return Response({"detail": detail}, status=error_status)
@@ -5204,7 +5369,7 @@ class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
     def reject(self, request, pk=None):
         answer = self.get_object()
         ok, error_status, detail = self._apply_answer_moderation(
-            answer, request.user, "reject"
+            answer, request.user, "reject", review_note=request.data.get("review_note", "")
         )
         if not ok:
             return Response({"detail": detail}, status=error_status)
@@ -5274,7 +5439,10 @@ class AnswerViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
                 continue
 
             ok, _, detail = self._apply_answer_moderation(
-                answer, request.user, action_name
+                answer,
+                request.user,
+                action_name,
+                review_note=request.data.get("review_note", ""),
             )
             if ok:
                 success_count += 1
@@ -6286,15 +6454,17 @@ class FriendlyLinkViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-class CompetitionNoticeViewSet(viewsets.ModelViewSet):
+class CompetitionNoticeViewSet(ReviewNoteActionMixin, viewsets.ModelViewSet):
     serializer_class = CompetitionNoticeSerializer
     queryset = CompetitionNotice.objects.select_related(
-        "created_by", "updated_by"
+        "created_by", "updated_by", "reviewer"
     ).all()
 
     def get_permissions(self):
         if self.action in {"list", "retrieve", "taxonomy"}:
             return [AllowAny()]
+        if self.action in {"approve", "reject", "append_review_note"}:
+            return [AdminOrSuperAdmin()]
         return [AuthenticatedAndNotBanned()]
 
     def _ensure_editor(self, request):
@@ -6320,7 +6490,7 @@ class CompetitionNoticeViewSet(viewsets.ModelViewSet):
             explicit_include=include_hidden,
             permission_check=can_manage_competition,
         )
-        if self.action in {"approve", "reject"} and can_manage_competition(user):
+        if self.action in {"approve", "reject", "append_review_note"} and can_manage_competition(user):
             can_access_hidden = True
         if not can_access_hidden:
             queryset = queryset.filter(
@@ -6608,15 +6778,17 @@ class CompetitionNoticeViewSet(viewsets.ModelViewSet):
             return schema_outdated_response(exc)
 
 
-class CompetitionScheduleEntryViewSet(viewsets.ModelViewSet):
+class CompetitionScheduleEntryViewSet(ReviewNoteActionMixin, viewsets.ModelViewSet):
     serializer_class = CompetitionScheduleEntrySerializer
     queryset = CompetitionScheduleEntry.objects.select_related(
-        "announcement", "created_by", "updated_by"
+        "announcement", "created_by", "updated_by", "reviewer"
     ).all()
 
     def get_permissions(self):
         if self.action in {"list", "retrieve", "years"}:
             return [AllowAny()]
+        if self.action in {"approve", "reject", "append_review_note"}:
+            return [AdminOrSuperAdmin()]
         return [AuthenticatedAndNotBanned()]
 
     def _ensure_editor(self, request):
@@ -6642,7 +6814,7 @@ class CompetitionScheduleEntryViewSet(viewsets.ModelViewSet):
             explicit_include=include_hidden,
             permission_check=can_manage_competition,
         )
-        if self.action in {"approve", "reject"} and can_manage_competition(user):
+        if self.action in {"approve", "reject", "append_review_note"} and can_manage_competition(user):
             can_access_hidden = True
         if not can_access_hidden:
             queryset = queryset.filter(
@@ -7016,7 +7188,7 @@ class CompetitionPracticeLinkViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class CompetitionPracticeLinkProposalViewSet(
-    ActionThrottleMixin, viewsets.ModelViewSet
+    ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet
 ):
     serializer_class = CompetitionPracticeLinkProposalSerializer
     queryset = CompetitionPracticeLinkProposal.objects.select_related(
@@ -7633,6 +7805,59 @@ class UserManagementViewSet(viewsets.ReadOnlyModelViewSet):
                 metadata={"target_user_id": target.id},
             )
         return Response(self.get_serializer(target).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[AdminOrSuperAdmin], url_path="send-notification")
+    def send_notification(self, request, pk=None):
+        target = self.get_object()
+        title = str(request.data.get("title", "") or "").strip()
+        content = str(request.data.get("content", "") or "").strip()
+        link = str(request.data.get("link", "") or "").strip()
+        level = str(request.data.get("level", UserNotification.Level.INFO) or "").strip()
+
+        if not title:
+            return Response(
+                {"detail": "title is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(title) > 200:
+            return Response(
+                {"detail": "title is too long."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not content:
+            return Response(
+                {"detail": "content is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if level not in dict(UserNotification.Level.choices):
+            level = UserNotification.Level.INFO
+
+        notification = create_notification(
+            user=target,
+            actor=request.user,
+            title=title,
+            content=content,
+            link=link,
+            level=level,
+        )
+        if notification is None:
+            return Response(
+                {"detail": "Target user cannot receive notifications."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        log_event(
+            request.user,
+            ContributionEvent.EventType.ADMIN,
+            target,
+            {"action": "send_user_notification", "level": level},
+        )
+        return Response(
+            {
+                "detail": "Notification sent.",
+                "id": notification.id,
+            }
+        )
 
     @action(
         detail=True, methods=["post"], permission_classes=[AuthenticatedAndNotBanned]

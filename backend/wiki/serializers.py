@@ -1098,6 +1098,7 @@ class ArticleDetailSerializer(ArticleSerializer):
 
 class ArticleCommentSerializer(serializers.ModelSerializer):
     author = UserPublicSerializer(read_only=True)
+    reviewer = UserPublicSerializer(read_only=True)
     article_title = serializers.CharField(source="article.title", read_only=True)
 
     class Meta:
@@ -1110,10 +1111,21 @@ class ArticleCommentSerializer(serializers.ModelSerializer):
             "parent",
             "content",
             "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["author", "status", "created_at", "updated_at"]
+        read_only_fields = [
+            "author",
+            "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate(self, attrs):
         article = attrs.get("article") or getattr(self.instance, "article", None)
@@ -1210,6 +1222,7 @@ class RevisionProposalSerializer(serializers.ModelSerializer):
 class IssueTicketSerializer(serializers.ModelSerializer):
     author = UserPublicSerializer(read_only=True)
     assignee = UserPublicSerializer(read_only=True)
+    reviewer = UserPublicSerializer(read_only=True)
     related_article_title = serializers.CharField(
         source="related_article.title", read_only=True
     )
@@ -1232,6 +1245,9 @@ class IssueTicketSerializer(serializers.ModelSerializer):
             "status",
             "assignee",
             "resolution_note",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
@@ -1240,6 +1256,9 @@ class IssueTicketSerializer(serializers.ModelSerializer):
             "status",
             "assignee",
             "resolution_note",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
@@ -1247,6 +1266,7 @@ class IssueTicketSerializer(serializers.ModelSerializer):
 
 class TrickEntrySerializer(serializers.ModelSerializer):
     author = UserPublicSerializer(read_only=True)
+    reviewer = UserPublicSerializer(read_only=True)
     terms = serializers.SerializerMethodField(read_only=True)
     term_ids = serializers.PrimaryKeyRelatedField(
         source="terms",
@@ -1272,12 +1292,18 @@ class TrickEntrySerializer(serializers.ModelSerializer):
             "term_ids",
             "pending_term_names",
             "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "author",
             "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
@@ -1580,6 +1606,7 @@ class TeamMemberUpsertSerializer(serializers.ModelSerializer):
 
 class AnswerSerializer(serializers.ModelSerializer):
     author = UserPublicSerializer(read_only=True)
+    reviewer = UserPublicSerializer(read_only=True)
     question_title = serializers.CharField(source="question.title", read_only=True)
     question_status = serializers.CharField(source="question.status", read_only=True)
 
@@ -1594,6 +1621,9 @@ class AnswerSerializer(serializers.ModelSerializer):
             "content_md",
             "is_accepted",
             "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
@@ -1601,6 +1631,9 @@ class AnswerSerializer(serializers.ModelSerializer):
             "author",
             "is_accepted",
             "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
@@ -1608,6 +1641,7 @@ class AnswerSerializer(serializers.ModelSerializer):
 
 class QuestionSerializer(serializers.ModelSerializer):
     author = UserPublicSerializer(read_only=True)
+    reviewer = UserPublicSerializer(read_only=True)
     answers_count = serializers.IntegerField(source="answers.count", read_only=True)
     category_name = serializers.CharField(source="category.name", read_only=True)
 
@@ -1621,6 +1655,9 @@ class QuestionSerializer(serializers.ModelSerializer):
             "category",
             "category_name",
             "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "answers_count",
             "created_at",
             "updated_at",
@@ -1628,6 +1665,9 @@ class QuestionSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "author",
             "status",
+            "reviewer",
+            "review_note",
+            "reviewed_at",
             "answers_count",
             "created_at",
             "updated_at",

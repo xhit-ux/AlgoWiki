@@ -29,11 +29,33 @@
       </RouterLink>
     </nav>
 
+    <section class="review-card review-status-card">
+      <div>
+        <p class="review-kicker">审核记录</p>
+        <p class="meta">切换查看当前分区的待审核、已通过和已驳回记录。</p>
+      </div>
+      <div class="review-status-tabs">
+        <button
+          v-for="statusItem in reviewStatusOptions"
+          :key="statusItem.key"
+          class="review-status-tab"
+          :class="{
+            'review-status-tab--active': currentReviewStatus === statusItem.key,
+          }"
+          type="button"
+          @click="setReviewStatus(currentSection, statusItem.key)"
+        >
+          <span>{{ statusItem.label }}</span>
+          <strong>{{ formatStatusCount(currentSection, statusItem.key) }}</strong>
+        </button>
+      </div>
+    </section>
+
     <article v-if="currentSection === 'revisions'" class="review-card full">
       <h2>内容修订审核</h2>
-      <p class="meta">待审核 {{ counts.revisions }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('revisions') }}</p>
       <div class="toolbar">
-        <label class="check-line"
+        <label v-if="isPendingMode" class="check-line"
           ><input
             type="checkbox"
             :checked="allPendingRevisionsChecked"
@@ -47,11 +69,13 @@
           @keyup.enter="loadPendingRevisions"
         />
         <input
+          v-if="isPendingMode"
           v-model="bulkRevisionReviewNote"
           class="input grow"
           placeholder="批量审核备注（可选）"
         />
         <button
+          v-if="isPendingMode"
           class="btn btn-accent"
           type="button"
           @click="bulkReviewRevisions('approve')"
@@ -59,6 +83,7 @@
           批量通过
         </button>
         <button
+          v-if="isPendingMode"
           class="btn"
           type="button"
           @click="bulkReviewRevisions('reject')"
@@ -72,7 +97,7 @@
         class="review-row"
       >
         <div class="review-main">
-          <label class="check-line"
+          <label v-if="isPendingMode" class="check-line"
             ><input
               type="checkbox"
               :value="item.id"
@@ -98,14 +123,24 @@
           >
             进入审批页面
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('revisions', item.id)"
+            :on-submit="(note) => appendReviewNote('revisions', item, note)"
+          />
         </div>
       </article>
-      <p v-if="!pendingRevisions.length" class="meta">当前没有待审核修订。</p>
+      <p v-if="!pendingRevisions.length" class="meta">
+        {{ formatSectionEmptyText('revisions') }}
+      </p>
     </article>
 
     <article v-else-if="currentSection === 'practice'" class="review-card full">
       <h2>补题链接审核</h2>
-      <p class="meta">待审核 {{ counts.practice }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('practice') }}</p>
       <article
         v-for="item in pendingPracticeProposals"
         :key="item.id"
@@ -134,6 +169,7 @@
           }}</pre>
           <p class="meta">说明：{{ item.reason || "无" }}</p>
           <textarea
+            v-if="isPendingMode"
             v-model="item._reviewNote"
             class="textarea"
             placeholder="审核备注（可选）"
@@ -141,6 +177,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             :disabled="reviewingPracticeId === item.id"
@@ -149,6 +186,7 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             :disabled="reviewingPracticeId === item.id"
@@ -156,16 +194,24 @@
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('practice', item.id)"
+            :on-submit="(note) => appendReviewNote('practice', item, note)"
+          />
         </div>
       </article>
       <p v-if="!pendingPracticeProposals.length" class="meta">
-        当前没有待审核补题链接申请。
+        {{ formatSectionEmptyText('practice') }}
       </p>
     </article>
 
     <article v-else-if="currentSection === 'notices'" class="review-card full">
       <h2>赛事公告审核</h2>
-      <p class="meta">待审核 {{ counts.notices }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('notices') }}</p>
       <article v-for="item in pendingNotices" :key="item.id" class="review-row">
         <div class="review-main">
           <strong>{{ item.title || "未命名公告" }}</strong>
@@ -180,6 +226,7 @@
           </p>
           <div class="markdown trick-markdown" v-html="renderMarkdown(item.content_md || '')"></div>
           <textarea
+            v-if="isPendingMode"
             v-model="item._reviewNote"
             class="textarea"
             placeholder="审核备注（可选）"
@@ -187,6 +234,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             :disabled="reviewingNoticeId === item.id"
@@ -195,6 +243,7 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             :disabled="reviewingNoticeId === item.id"
@@ -202,14 +251,24 @@
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('notices', item.id)"
+            :on-submit="(note) => appendReviewNote('notices', item, note)"
+          />
         </div>
       </article>
-      <p v-if="!pendingNotices.length" class="meta">当前没有待审核赛事公告。</p>
+      <p v-if="!pendingNotices.length" class="meta">
+        {{ formatSectionEmptyText('notices') }}
+      </p>
     </article>
 
     <article v-else-if="currentSection === 'schedules'" class="review-card full">
       <h2>赛事时刻表审核</h2>
-      <p class="meta">待审核 {{ counts.schedules }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('schedules') }}</p>
       <article v-for="item in pendingSchedules" :key="item.id" class="review-row">
         <div class="review-main">
           <strong>{{ item.competition_type || "未命名赛事" }}</strong>
@@ -226,6 +285,7 @@
             >
           </p>
           <textarea
+            v-if="isPendingMode"
             v-model="item._reviewNote"
             class="textarea"
             placeholder="审核备注（可选）"
@@ -233,6 +293,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             :disabled="reviewingScheduleId === item.id"
@@ -241,6 +302,7 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             :disabled="reviewingScheduleId === item.id"
@@ -248,16 +310,24 @@
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('schedules', item.id)"
+            :on-submit="(note) => appendReviewNote('schedules', item, note)"
+          />
         </div>
       </article>
       <p v-if="!pendingSchedules.length" class="meta">
-        当前没有待审核赛事时刻表。
+        {{ formatSectionEmptyText('schedules') }}
       </p>
     </article>
 
     <article v-else-if="currentSection === 'tickets'" class="review-card full">
       <h2>工单审核</h2>
-      <p class="meta">待处理 {{ counts.tickets }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('tickets') }}</p>
       <div class="toolbar">
         <select
           v-model="ticketFilters.kind"
@@ -304,7 +374,7 @@
           <p class="ticket-content">{{ item.content }}</p>
         </div>
         <div class="review-actions">
-          <select v-model="item._assignTo" class="select">
+          <select v-if="isPendingMode" v-model="item._assignTo" class="select">
             <option value="">未分派</option>
             <option
               v-for="user in assigneeOptions"
@@ -314,34 +384,46 @@
               {{ user.username }} ({{ user.role }})
             </option>
           </select>
-          <select v-model="item._nextStatus" class="select">
+          <select v-if="isPendingMode" v-model="item._nextStatus" class="select">
             <option value="open">受理</option>
             <option value="in_progress">处理中</option>
             <option value="resolved">已解决</option>
             <option value="rejected">驳回</option>
           </select>
           <textarea
+            v-if="isPendingMode"
             v-model="item._note"
             class="textarea"
             placeholder="处理备注（可选）"
           ></textarea>
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             @click="updateTicketStatus(item)"
           >
             提交处理
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('tickets', item.id)"
+            :on-submit="(note) => appendReviewNote('tickets', item, note)"
+          />
         </div>
       </article>
-      <p v-if="!pendingTickets.length" class="meta">当前没有待处理工单。</p>
+      <p v-if="!pendingTickets.length" class="meta">
+        {{ formatSectionEmptyText('tickets') }}
+      </p>
     </article>
 
     <article v-else-if="currentSection === 'comments'" class="review-card full">
       <h2>评论审核</h2>
-      <p class="meta">待审核 {{ counts.comments }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('comments') }}</p>
       <div class="toolbar">
-        <label class="check-line"
+        <label v-if="isPendingMode" class="check-line"
           ><input
             type="checkbox"
             :checked="allPendingCommentsChecked"
@@ -367,18 +449,25 @@
           @keyup.enter="loadPendingComments"
         />
         <input
+          v-if="isPendingMode"
           v-model="bulkCommentReviewNote"
           class="input grow"
           placeholder="批量审核备注（可选）"
         />
         <button
+          v-if="isPendingMode"
           class="btn btn-accent"
           type="button"
           @click="bulkReviewComments('approve')"
         >
           批量通过
         </button>
-        <button class="btn" type="button" @click="bulkReviewComments('reject')">
+        <button
+          v-if="isPendingMode"
+          class="btn"
+          type="button"
+          @click="bulkReviewComments('reject')"
+        >
           批量驳回
         </button>
       </div>
@@ -388,7 +477,7 @@
         class="review-row"
       >
         <div class="review-main">
-          <label class="check-line"
+          <label v-if="isPendingMode" class="check-line"
             ><input
               type="checkbox"
               :value="item.id"
@@ -406,6 +495,7 @@
           </p>
           <p class="ticket-content">{{ item.content }}</p>
           <textarea
+            v-if="isPendingMode"
             v-model="item._reviewNote"
             class="textarea"
             placeholder="审核备注（可选）"
@@ -413,6 +503,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             :disabled="reviewingCommentId === item.id"
@@ -421,6 +512,7 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             :disabled="reviewingCommentId === item.id"
@@ -428,14 +520,24 @@
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('comments', item.id)"
+            :on-submit="(note) => appendReviewNote('comments', item, note)"
+          />
         </div>
       </article>
-      <p v-if="!pendingComments.length" class="meta">当前没有待审核评论。</p>
+      <p v-if="!pendingComments.length" class="meta">
+        {{ formatSectionEmptyText('comments') }}
+      </p>
     </article>
 
     <article v-else-if="currentSection === 'tricks'" class="review-card full">
       <h2>trick 技巧审核</h2>
-      <p class="meta">待审核 {{ counts.tricks }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('tricks') }}</p>
       <div class="toolbar">
         <input
           v-model="trickFilters.search"
@@ -479,6 +581,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             :disabled="reviewingTrickId === item.id"
@@ -487,6 +590,7 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             :disabled="reviewingTrickId === item.id"
@@ -494,10 +598,18 @@
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('tricks', item.id)"
+            :on-submit="(note) => appendReviewNote('tricks', item, note)"
+          />
         </div>
       </article>
       <p v-if="!pendingTricks.length" class="meta">
-        当前没有待审核 trick 投稿。
+        {{ formatSectionEmptyText('tricks') }}
       </p>
     </article>
 
@@ -506,7 +618,7 @@
       class="review-card full"
     >
       <h2>trick 词条候选审核</h2>
-      <p class="meta">待审核 {{ counts.trick_terms }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('trick_terms') }}</p>
       <article
         v-for="item in pendingTrickTermSuggestions"
         :key="item.id"
@@ -528,6 +640,7 @@
             }}
           </p>
           <textarea
+            v-if="isPendingMode"
             v-model="item._reviewNote"
             class="textarea"
             placeholder="审核备注（可选）"
@@ -535,6 +648,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             :disabled="reviewingTrickTermSuggestionId === item.id"
@@ -543,6 +657,7 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             :disabled="reviewingTrickTermSuggestionId === item.id"
@@ -550,10 +665,18 @@
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('trick_terms', item.id)"
+            :on-submit="(note) => appendReviewNote('trick_terms', item, note)"
+          />
         </div>
       </article>
       <p v-if="!pendingTrickTermSuggestions.length" class="meta">
-        当前没有待审核词条候选。
+        {{ formatSectionEmptyText('trick_terms') }}
       </p>
     </article>
 
@@ -562,9 +685,9 @@
       class="review-card full"
     >
       <h2>问答问题审核</h2>
-      <p class="meta">待审核 {{ counts.questions }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('questions') }}</p>
       <div class="toolbar">
-        <label class="check-line"
+        <label v-if="isPendingMode" class="check-line"
           ><input
             type="checkbox"
             :checked="allPendingQuestionsChecked"
@@ -594,6 +717,7 @@
           </option>
         </select>
         <button
+          v-if="isPendingMode"
           class="btn btn-accent"
           type="button"
           @click="bulkModerateQuestions('approve')"
@@ -601,6 +725,7 @@
           批量通过
         </button>
         <button
+          v-if="isPendingMode"
           class="btn"
           type="button"
           @click="bulkModerateQuestions('reject')"
@@ -617,7 +742,7 @@
         class="review-row"
       >
         <div class="review-main">
-          <label class="check-line"
+          <label v-if="isPendingMode" class="check-line"
             ><input
               type="checkbox"
               :value="item.id"
@@ -636,6 +761,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             @click="reviewQuestion(item, 'approve')"
@@ -643,22 +769,33 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             @click="reviewQuestion(item, 'reject')"
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('questions', item.id)"
+            :on-submit="(note) => appendReviewNote('questions', item, note)"
+          />
         </div>
       </article>
-      <p v-if="!pendingQuestions.length" class="meta">当前没有待审核问题。</p>
+      <p v-if="!pendingQuestions.length" class="meta">
+        {{ formatSectionEmptyText('questions') }}
+      </p>
     </article>
 
     <article v-else-if="currentSection === 'answers'" class="review-card full">
       <h2>问答回答审核</h2>
-      <p class="meta">待审核 {{ counts.answers }} 条</p>
+      <p class="meta">{{ formatSectionStatusLine('answers') }}</p>
       <div class="toolbar">
-        <label class="check-line"
+        <label v-if="isPendingMode" class="check-line"
           ><input
             type="checkbox"
             :checked="allPendingAnswersChecked"
@@ -678,6 +815,7 @@
           @keyup.enter="loadPendingAnswers"
         />
         <button
+          v-if="isPendingMode"
           class="btn btn-accent"
           type="button"
           @click="bulkModerateAnswers('approve')"
@@ -685,6 +823,7 @@
           批量通过
         </button>
         <button
+          v-if="isPendingMode"
           class="btn"
           type="button"
           @click="bulkModerateAnswers('reject')"
@@ -697,7 +836,7 @@
       </div>
       <article v-for="item in pendingAnswers" :key="item.id" class="review-row">
         <div class="review-main">
-          <label class="check-line"
+          <label v-if="isPendingMode" class="check-line"
             ><input
               type="checkbox"
               :value="item.id"
@@ -713,6 +852,7 @@
         </div>
         <div class="review-actions">
           <button
+            v-if="isPendingMode"
             class="btn btn-accent"
             type="button"
             @click="reviewAnswer(item, 'approve')"
@@ -720,15 +860,26 @@
             通过
           </button>
           <button
+            v-if="isPendingMode"
             class="btn"
             type="button"
             @click="reviewAnswer(item, 'reject')"
           >
             驳回
           </button>
+          <ReviewRecordPanel
+            v-if="!isPendingMode"
+            :reviewer-name="getItemReviewerName(item)"
+            :reviewed-at="getItemReviewedAt(item)"
+            :existing-note="getItemReviewNote(item)"
+            :loading="isAppendingReviewNote('answers', item.id)"
+            :on-submit="(note) => appendReviewNote('answers', item, note)"
+          />
         </div>
       </article>
-      <p v-if="!pendingAnswers.length" class="meta">当前没有待审核回答。</p>
+      <p v-if="!pendingAnswers.length" class="meta">
+        {{ formatSectionEmptyText('answers') }}
+      </p>
     </article>
   </section>
 </template>
@@ -737,6 +888,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 
+import ReviewRecordPanel from "../components/review/ReviewRecordPanel.vue";
 import api from "../services/api";
 import { renderInlineMarkdown, renderMarkdown } from "../services/markdown";
 import { renderUnifiedDiffHtml } from "../services/revisionDiff";
@@ -815,6 +967,12 @@ const reviewSections = [
   },
 ];
 
+const reviewStatusOptions = [
+  { key: "pending", label: "待审核" },
+  { key: "approved", label: "已通过" },
+  { key: "rejected", label: "已驳回" },
+];
+
 const reviewSectionKeys = new Set(reviewSections.map((item) => item.key));
 const reviewSectionMap = new Map(
   reviewSections.map((item) => [item.key, item]),
@@ -832,6 +990,17 @@ const counts = reactive({
   questions: 0,
   answers: 0,
 });
+const historyCounts = reactive(
+  Object.fromEntries(
+    reviewSections.map((item) => [
+      item.key,
+      { pending: 0, approved: 0, rejected: 0 },
+    ]),
+  ),
+);
+const reviewStatuses = reactive(
+  Object.fromEntries(reviewSections.map((item) => [item.key, "pending"])),
+);
 
 const categories = ref([]);
 const assigneeOptions = ref([]);
@@ -859,6 +1028,7 @@ const reviewingScheduleId = ref(null);
 const reviewingCommentId = ref(null);
 const reviewingTrickId = ref(null);
 const reviewingTrickTermSuggestionId = ref(null);
+const appendingReviewNoteKey = ref("");
 
 const revisionFilters = reactive({ search: "" });
 const ticketFilters = reactive({ kind: "", author: "", search: "" });
@@ -871,6 +1041,18 @@ const currentSection = computed(() => normalizeReviewSection(props.section));
 const currentSectionConfig = computed(
   () => reviewSectionMap.get(currentSection.value) || reviewSections[0],
 );
+const currentReviewStatus = computed(
+  () => reviewStatuses[currentSection.value] || "pending",
+);
+const currentHistoryCounts = computed(
+  () =>
+    historyCounts[currentSection.value] || {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    },
+);
+const isPendingMode = computed(() => currentReviewStatus.value === "pending");
 
 const allPendingRevisionsChecked = computed(
   () =>
@@ -904,6 +1086,121 @@ function normalizeReviewSection(section) {
 function buildReviewRoute(section) {
   const item = reviewSectionMap.get(normalizeReviewSection(section));
   return { name: item?.routeName || "review" };
+}
+
+function setReviewStatus(section, status) {
+  const nextSection = normalizeReviewSection(section);
+  const nextStatus = reviewStatusOptions.some((item) => item.key === status)
+    ? status
+    : "pending";
+  reviewStatuses[nextSection] = nextStatus;
+  reloadCurrentSection();
+}
+
+function getReviewStatusApiValues(section, reviewStatus) {
+  if (reviewStatus === "pending") return ["pending"];
+
+  switch (section) {
+    case "tickets":
+      return reviewStatus === "approved"
+        ? ["open", "in_progress", "resolved"]
+        : ["rejected"];
+    case "comments":
+      return reviewStatus === "approved" ? ["visible"] : ["hidden"];
+    case "questions":
+      return reviewStatus === "approved" ? ["open", "closed"] : ["hidden"];
+    case "answers":
+      return reviewStatus === "approved" ? ["visible"] : ["hidden"];
+    default:
+      return [reviewStatus];
+  }
+}
+
+async function fetchGroupedCount(path, params = {}, statuses = []) {
+  let total = 0;
+  for (const status of statuses) {
+    total += await fetchCount(path, { ...params, status });
+  }
+  return total;
+}
+
+async function fetchAllByStatuses(path, params = {}, statuses = []) {
+  const merged = [];
+  let total = 0;
+  for (const status of statuses) {
+    const payload = await fetchAllPages(path, { ...params, status });
+    total += payload.count;
+    merged.push(...payload.results);
+  }
+  merged.sort((left, right) => {
+    const leftTime = new Date(
+      left?.updated_at || left?.reviewed_at || left?.created_at || 0,
+    ).getTime();
+    const rightTime = new Date(
+      right?.updated_at || right?.reviewed_at || right?.created_at || 0,
+    ).getTime();
+    return rightTime - leftTime;
+  });
+  return { results: merged, count: total };
+}
+
+function formatStatusCount(section, reviewStatus) {
+  return formatCount(currentHistoryCounts.value?.[reviewStatus] || 0);
+}
+
+function formatSectionStatusLine(section) {
+  const currentLabel =
+    reviewStatusOptions.find((item) => item.key === currentReviewStatus.value)
+      ?.label || "待审核";
+  const count = historyCounts[section]?.[currentReviewStatus.value] || 0;
+  return `${currentLabel} ${count} 条`;
+}
+
+function formatSectionEmptyText(section) {
+  const currentLabel =
+    reviewStatusOptions.find((item) => item.key === currentReviewStatus.value)
+      ?.label || "待审核";
+  return `当前没有${currentLabel}${currentSectionConfig.value?.label || section}记录。`;
+}
+
+function getItemReviewerName(item) {
+  return (
+    item?.reviewer?.username ||
+    item?.assignee?.username ||
+    item?.updated_by?.username ||
+    item?.created_by?.username ||
+    "-"
+  );
+}
+
+function getItemReviewedAt(item) {
+  return item?.reviewed_at || item?.updated_at || item?.created_at || null;
+}
+
+function getItemReviewNote(item) {
+  return String(item?.review_note || item?.resolution_note || "").trim();
+}
+
+function buildAppendReviewNotePath(section, itemId) {
+  const id = Number(itemId);
+  if (!Number.isFinite(id) || id <= 0) return "";
+  const mapping = {
+    revisions: `/revisions/${id}/append-review-note/`,
+    practice: `/competition-practice-proposals/${id}/append-review-note/`,
+    notices: `/competition-notices/${id}/append-review-note/`,
+    schedules: `/competition-schedules/${id}/append-review-note/`,
+    tickets: `/issues/${id}/append-review-note/`,
+    comments: `/comments/${id}/append-review-note/`,
+    tricks: `/tricks/${id}/append-review-note/`,
+    trick_terms: `/trick-term-suggestions/${id}/append-review-note/`,
+    questions: `/questions/${id}/append-review-note/`,
+    answers: `/answers/${id}/append-review-note/`,
+  };
+  return mapping[section] || "";
+}
+
+function isAppendingReviewNote(section, itemId) {
+  return appendingReviewNoteKey.value === `${section}:${itemId}`;
 }
 
 function getErrorText(error, fallback = "操作失败") {
@@ -1002,6 +1299,136 @@ async function loadCounts() {
   counts.answers = answers;
 }
 
+async function loadCurrentHistoryCounts() {
+  const section = currentSection.value;
+  const loaders = {
+    revisions: () =>
+      Promise.all([
+        fetchGroupedCount("/revisions/", {}, getReviewStatusApiValues(section, "pending")),
+        fetchGroupedCount("/revisions/", {}, getReviewStatusApiValues(section, "approved")),
+        fetchGroupedCount("/revisions/", {}, getReviewStatusApiValues(section, "rejected")),
+      ]),
+    practice: () =>
+      Promise.all([
+        fetchGroupedCount(
+          "/competition-practice-proposals/",
+          {},
+          getReviewStatusApiValues(section, "pending"),
+        ),
+        fetchGroupedCount(
+          "/competition-practice-proposals/",
+          {},
+          getReviewStatusApiValues(section, "approved"),
+        ),
+        fetchGroupedCount(
+          "/competition-practice-proposals/",
+          {},
+          getReviewStatusApiValues(section, "rejected"),
+        ),
+      ]),
+    notices: () =>
+      Promise.all([
+        fetchGroupedCount(
+          "/competition-notices/",
+          { include_hidden: 1 },
+          getReviewStatusApiValues(section, "pending"),
+        ),
+        fetchGroupedCount(
+          "/competition-notices/",
+          { include_hidden: 1 },
+          getReviewStatusApiValues(section, "approved"),
+        ),
+        fetchGroupedCount(
+          "/competition-notices/",
+          { include_hidden: 1 },
+          getReviewStatusApiValues(section, "rejected"),
+        ),
+      ]),
+    schedules: () =>
+      Promise.all([
+        fetchGroupedCount(
+          "/competition-schedules/",
+          { include_hidden: 1 },
+          getReviewStatusApiValues(section, "pending"),
+        ),
+        fetchGroupedCount(
+          "/competition-schedules/",
+          { include_hidden: 1 },
+          getReviewStatusApiValues(section, "approved"),
+        ),
+        fetchGroupedCount(
+          "/competition-schedules/",
+          { include_hidden: 1 },
+          getReviewStatusApiValues(section, "rejected"),
+        ),
+      ]),
+    tickets: () =>
+      Promise.all([
+        fetchGroupedCount("/issues/", {}, getReviewStatusApiValues(section, "pending")),
+        fetchGroupedCount("/issues/", {}, getReviewStatusApiValues(section, "approved")),
+        fetchGroupedCount("/issues/", {}, getReviewStatusApiValues(section, "rejected")),
+      ]),
+    comments: () =>
+      Promise.all([
+        fetchGroupedCount("/comments/", {}, getReviewStatusApiValues(section, "pending")),
+        fetchGroupedCount("/comments/", {}, getReviewStatusApiValues(section, "approved")),
+        fetchGroupedCount("/comments/", {}, getReviewStatusApiValues(section, "rejected")),
+      ]),
+    tricks: () =>
+      Promise.all([
+        fetchGroupedCount(
+          "/tricks/",
+          { include_all: 1 },
+          getReviewStatusApiValues(section, "pending"),
+        ),
+        fetchGroupedCount(
+          "/tricks/",
+          { include_all: 1 },
+          getReviewStatusApiValues(section, "approved"),
+        ),
+        fetchGroupedCount(
+          "/tricks/",
+          { include_all: 1 },
+          getReviewStatusApiValues(section, "rejected"),
+        ),
+      ]),
+    trick_terms: () =>
+      Promise.all([
+        fetchGroupedCount(
+          "/trick-term-suggestions/",
+          {},
+          getReviewStatusApiValues(section, "pending"),
+        ),
+        fetchGroupedCount(
+          "/trick-term-suggestions/",
+          {},
+          getReviewStatusApiValues(section, "approved"),
+        ),
+        fetchGroupedCount(
+          "/trick-term-suggestions/",
+          {},
+          getReviewStatusApiValues(section, "rejected"),
+        ),
+      ]),
+    questions: () =>
+      Promise.all([
+        fetchGroupedCount("/questions/", {}, getReviewStatusApiValues(section, "pending")),
+        fetchGroupedCount("/questions/", {}, getReviewStatusApiValues(section, "approved")),
+        fetchGroupedCount("/questions/", {}, getReviewStatusApiValues(section, "rejected")),
+      ]),
+    answers: () =>
+      Promise.all([
+        fetchGroupedCount("/answers/", {}, getReviewStatusApiValues(section, "pending")),
+        fetchGroupedCount("/answers/", {}, getReviewStatusApiValues(section, "approved")),
+        fetchGroupedCount("/answers/", {}, getReviewStatusApiValues(section, "rejected")),
+      ]),
+  };
+
+  if (!loaders[section]) return;
+  const [pending, approved, rejected] = await loaders[section]();
+  historyCounts[section] = { pending, approved, rejected };
+}
+
 async function loadTrickTerms() {
   try {
     const { results } = await fetchAllPages("/trick-terms/");
@@ -1037,10 +1464,14 @@ async function loadAssigneeOptions() {
 
 async function loadPendingRevisions() {
   try {
-    const params = { status: "pending" };
+    const params = {};
     if (revisionFilters.search.trim())
       params.search = revisionFilters.search.trim();
-    const { results } = await fetchAllPages("/revisions/", params);
+    const { results } = await fetchAllByStatuses(
+      "/revisions/",
+      params,
+      getReviewStatusApiValues("revisions", currentReviewStatus.value),
+    );
     pendingRevisions.value = results.map((item) => ({
       ...item,
       _diffPreview: renderUnifiedDiffHtml(
@@ -1057,9 +1488,10 @@ async function loadPendingRevisions() {
 
 async function loadPendingPracticeProposals() {
   try {
-    const { results } = await fetchAllPages(
+    const { results } = await fetchAllByStatuses(
       "/competition-practice-proposals/",
-      { status: "pending" },
+      {},
+      getReviewStatusApiValues("practice", currentReviewStatus.value),
     );
     pendingPracticeProposals.value = results.map((item) => ({
       ...item,
@@ -1072,10 +1504,11 @@ async function loadPendingPracticeProposals() {
 
 async function loadPendingCompetitionNotices() {
   try {
-    const { results } = await fetchAllPages("/competition-notices/", {
-      include_hidden: 1,
-      status: "pending",
-    });
+    const { results } = await fetchAllByStatuses(
+      "/competition-notices/",
+      { include_hidden: 1 },
+      getReviewStatusApiValues("notices", currentReviewStatus.value),
+    );
     pendingNotices.value = results.map((item) => ({
       ...item,
       _reviewNote: item._reviewNote || "",
@@ -1087,10 +1520,11 @@ async function loadPendingCompetitionNotices() {
 
 async function loadPendingCompetitionSchedules() {
   try {
-    const { results } = await fetchAllPages("/competition-schedules/", {
-      include_hidden: 1,
-      status: "pending",
-    });
+    const { results } = await fetchAllByStatuses(
+      "/competition-schedules/",
+      { include_hidden: 1 },
+      getReviewStatusApiValues("schedules", currentReviewStatus.value),
+    );
     pendingSchedules.value = results.map((item) => ({
       ...item,
       _reviewNote: item._reviewNote || "",
@@ -1102,13 +1536,17 @@ async function loadPendingCompetitionSchedules() {
 
 async function loadPendingTickets() {
   try {
-    const params = { status: "pending" };
+    const params = {};
     if (ticketFilters.kind) params.kind = ticketFilters.kind;
     if (ticketFilters.author.trim())
       params.author = ticketFilters.author.trim();
     if (ticketFilters.search.trim())
       params.search = ticketFilters.search.trim();
-    const { results } = await fetchAllPages("/issues/", params);
+    const { results } = await fetchAllByStatuses(
+      "/issues/",
+      params,
+      getReviewStatusApiValues("tickets", currentReviewStatus.value),
+    );
     pendingTickets.value = results.map((item) => ({
       ...item,
       _assignTo: item.assignee?.id ? String(item.assignee.id) : "",
@@ -1122,14 +1560,18 @@ async function loadPendingTickets() {
 
 async function loadPendingComments() {
   try {
-    const params = { status: "pending" };
+    const params = {};
     if (commentFilters.search.trim())
       params.search = commentFilters.search.trim();
     if (commentFilters.author.trim())
       params.author = commentFilters.author.trim();
     if (commentFilters.article.trim())
       params.article = commentFilters.article.trim();
-    const { results } = await fetchAllPages("/comments/", params);
+    const { results } = await fetchAllByStatuses(
+      "/comments/",
+      params,
+      getReviewStatusApiValues("comments", currentReviewStatus.value),
+    );
     pendingComments.value = results.map((item) => ({
       ...item,
       _reviewNote: item._reviewNote || "",
@@ -1144,12 +1586,15 @@ async function loadPendingTricks() {
   try {
     const params = {
       include_all: 1,
-      status: "pending",
       order: "created_newest",
     };
     if (trickFilters.search.trim()) params.search = trickFilters.search.trim();
     if (trickFilters.term) params.term = trickFilters.term;
-    const { results } = await fetchAllPages("/tricks/", params);
+    const { results } = await fetchAllByStatuses(
+      "/tricks/",
+      params,
+      getReviewStatusApiValues("tricks", currentReviewStatus.value),
+    );
     pendingTricks.value = results;
   } catch (error) {
     ui.error(getErrorText(error, "trick 列表加载失败"));
@@ -1158,9 +1603,11 @@ async function loadPendingTricks() {
 
 async function loadPendingTrickTermSuggestions() {
   try {
-    const { results } = await fetchAllPages("/trick-term-suggestions/", {
-      status: "pending",
-    });
+    const { results } = await fetchAllByStatuses(
+      "/trick-term-suggestions/",
+      {},
+      getReviewStatusApiValues("trick_terms", currentReviewStatus.value),
+    );
     pendingTrickTermSuggestions.value = results.map((item) => ({
       ...item,
       _reviewNote: item._reviewNote || "",
@@ -1172,13 +1619,17 @@ async function loadPendingTrickTermSuggestions() {
 
 async function loadPendingQuestions() {
   try {
-    const params = { status: "pending", order: "created_newest" };
+    const params = { order: "created_newest" };
     if (questionFilters.search.trim())
       params.search = questionFilters.search.trim();
     if (questionFilters.author.trim())
       params.author = questionFilters.author.trim();
     if (questionFilters.category) params.category = questionFilters.category;
-    const { results } = await fetchAllPages("/questions/", params);
+    const { results } = await fetchAllByStatuses(
+      "/questions/",
+      params,
+      getReviewStatusApiValues("questions", currentReviewStatus.value),
+    );
     pendingQuestions.value = results;
     syncSelectedIds(selectedPendingQuestionIds, pendingQuestions.value);
   } catch (error) {
@@ -1188,12 +1639,16 @@ async function loadPendingQuestions() {
 
 async function loadPendingAnswers() {
   try {
-    const params = { status: "pending", order: "latest" };
+    const params = { order: "latest" };
     if (answerFilters.search.trim())
       params.search = answerFilters.search.trim();
     if (answerFilters.author.trim())
       params.author = answerFilters.author.trim();
-    const { results } = await fetchAllPages("/answers/", params);
+    const { results } = await fetchAllByStatuses(
+      "/answers/",
+      params,
+      getReviewStatusApiValues("answers", currentReviewStatus.value),
+    );
     pendingAnswers.value = results;
     syncSelectedIds(selectedPendingAnswerIds, pendingAnswers.value);
   } catch (error) {
@@ -1245,7 +1700,11 @@ async function ensureLoaded(section) {
 }
 
 async function reloadCurrentSection() {
-  await Promise.all([loadCounts(), ensureLoaded(currentSection.value)]);
+  await Promise.all([
+    loadCounts(),
+    loadCurrentHistoryCounts(),
+    ensureLoaded(currentSection.value),
+  ]);
 }
 
 function syncSelectedIds(target, list) {
@@ -1524,6 +1983,28 @@ async function reviewAnswer(item, action) {
   }
 }
 
+async function appendReviewNote(section, item, note) {
+  const path = buildAppendReviewNotePath(section, item?.id);
+  const payloadNote = String(note || "").trim();
+  if (!path || !payloadNote) {
+    ui.info("请先填写批注内容");
+    return false;
+  }
+
+  appendingReviewNoteKey.value = `${section}:${item.id}`;
+  try {
+    await api.post(path, { note: payloadNote });
+    ui.success("管理员批注已追加");
+    await reloadCurrentSection();
+    return true;
+  } catch (error) {
+    ui.error(getErrorText(error, "追加批注失败"));
+    return false;
+  } finally {
+    appendingReviewNoteKey.value = "";
+  }
+}
+
 async function bulkModerateAnswers(action) {
   if (!selectedPendingAnswerIds.value.length) {
     ui.info("请先选择回答");
@@ -1619,6 +2100,30 @@ watch(
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 14%, var(--surface-strong));
   font-weight: 700;
+  color: var(--text-strong);
+}
+.review-status-card {
+  display: grid;
+  gap: 12px;
+}
+.review-status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.review-status-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.review-status-tab--active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-strong));
   color: var(--text-strong);
 }
 .toolbar,

@@ -194,6 +194,15 @@ class ArticleComment(TimeStampedModel):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True
     )
+    reviewer = models.ForeignKey(
+        "User",
+        related_name="reviewed_article_comments",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    review_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -278,6 +287,15 @@ class IssueTicket(TimeStampedModel):
         blank=True,
     )
     resolution_note = models.TextField(blank=True)
+    reviewer = models.ForeignKey(
+        "User",
+        related_name="reviewed_issue_tickets",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    review_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]
@@ -305,6 +323,15 @@ class TrickEntry(TimeStampedModel):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True
     )
+    reviewer = models.ForeignKey(
+        "User",
+        related_name="reviewed_trick_entries",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    review_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]
@@ -354,7 +381,7 @@ class TrickTermSuggestion(TimeStampedModel):
         null=True,
         blank=True,
     )
-    review_note = models.CharField(max_length=255, blank=True)
+    review_note = models.TextField(blank=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -691,6 +718,15 @@ class Question(TimeStampedModel):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.OPEN
     )
+    reviewer = models.ForeignKey(
+        "User",
+        related_name="reviewed_questions",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    review_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]
@@ -733,6 +769,15 @@ class Answer(TimeStampedModel):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.VISIBLE
     )
+    reviewer = models.ForeignKey(
+        "User",
+        related_name="reviewed_answers",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    review_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]

@@ -55,6 +55,59 @@
       </template>
     </div>
 
+    <section class="admin-row notice-card">
+      <div class="row-main">
+        <strong>单用户公告</strong>
+        <p class="meta">
+          先用上方用户名 / 邮箱搜索筛选用户，再点击某个用户的“发送公告”。
+        </p>
+        <p class="meta" v-if="notificationTarget">
+          当前目标：{{ notificationTarget.username }} ·
+          {{ notificationTarget.email || "未填写邮箱" }}
+        </p>
+        <p v-else class="meta">当前还没有选择发送对象。</p>
+      </div>
+      <div class="row-actions">
+        <button
+          v-if="notificationTarget"
+          class="btn btn-mini"
+          type="button"
+          @click="clearNotificationTarget"
+        >
+          清空目标
+        </button>
+      </div>
+      <div class="toolbar notice-form">
+        <input
+          v-model="notificationForm.title"
+          class="input"
+          placeholder="公告标题"
+        />
+        <select v-model="notificationForm.level" class="select">
+          <option value="info">普通</option>
+          <option value="warning">提醒</option>
+        </select>
+        <input
+          v-model="notificationForm.link"
+          class="input grow"
+          placeholder="跳转链接（可选，如 /profile）"
+        />
+        <textarea
+          v-model="notificationForm.content"
+          class="textarea grow"
+          placeholder="公告内容"
+        ></textarea>
+        <button
+          class="btn btn-accent"
+          type="button"
+          :disabled="!notificationTarget || sendingNotificationUserId !== null"
+          @click="sendNotificationToUser"
+        >
+          {{ sendingNotificationUserId !== null ? "发送中..." : "发送公告" }}
+        </button>
+      </div>
+    </section>
+
     <p class="meta">共 {{ meta.count }} 个用户</p>
 
     <article v-for="item in users" :key="item.id" class="admin-row">
@@ -73,6 +126,7 @@
         <button v-else class="btn btn-mini" type="button" @click="unbanUser(item)">解封</button>
         <button v-if="!item.is_active" class="btn btn-mini" type="button" @click="reactivateUser(item)">恢复</button>
         <button class="btn btn-mini" type="button" @click="softDeleteUser(item)">删除</button>
+        <button class="btn btn-mini" type="button" @click="selectNotificationTarget(item)">发送公告</button>
         <template v-if="auth.isSuperAdmin">
           <button v-if="item.role !== 'admin'" class="btn btn-mini" type="button" @click="setRole(item, 'admin')">设为管理员</button>
           <button v-if="item.role !== 'school'" class="btn btn-mini" type="button" @click="setRole(item, 'school')">设为学校用户</button>
@@ -99,6 +153,14 @@ const ui = useUiStore();
 const users = ref([]);
 const selectedUserIds = ref([]);
 const bulkRole = ref("normal");
+const notificationTarget = ref(null);
+const sendingNotificationUserId = ref(null);
+const notificationForm = reactive({
+  title: "",
+  content: "",
+  link: "",
+  level: "info",
+});
 
 const filters = reactive({
   role: "",
@@ -169,6 +231,14 @@ function syncSelectedIds() {
   selectedUserIds.value = selectedUserIds.value.filter((id) => valid.has(id));
 }
 
+function syncNotificationTarget() {
+  if (!notificationTarget.value?.id) return;
+  const matched = users.value.find((item) => item.id === notificationTarget.value.id);
+  if (matched) {
+    notificationTarget.value = matched;
+  }
+}
+
 function buildParams(page = 1) {
   const params = { page };
   if (filters.role) params.role = filters.role;
@@ -185,6 +255,7 @@ async function loadUsers(page = 1, append = false) {
     users.value = append ? appendUniqueById(users.value, results) : results;
     updateMeta(count, users.value.length, page);
     syncSelectedIds();
+    syncNotificationTarget();
   } catch (error) {
     ui.error(getErrorText(error, "用户列表加载失败"));
   }
@@ -205,6 +276,14 @@ function resetFilters() {
   filters.is_banned = "";
   filters.search = "";
   loadUsers();
+}
+
+function selectNotificationTarget(item) {
+  notificationTarget.value = item;
+}
+
+function clearNotificationTarget() {
+  notificationTarget.value = null;
 }
 
 async function bulkAction(action, successText, extraPayload = {}) {
@@ -293,6 +372,36 @@ async function setRole(item, role) {
   }
 }
 
+async function sendNotificationToUser() {
+  if (!notificationTarget.value?.id) {
+    ui.info("请先选择一个用户");
+    return;
+  }
+  if (!notificationForm.title.trim() || !notificationForm.content.trim()) {
+    ui.info("请填写公告标题和内容");
+    return;
+  }
+
+  sendingNotificationUserId.value = notificationTarget.value.id;
+  try {
+    await api.post(`/users/${notificationTarget.value.id}/send-notification/`, {
+      title: notificationForm.title.trim(),
+      content: notificationForm.content.trim(),
+      link: notificationForm.link.trim(),
+      level: notificationForm.level,
+    });
+    ui.success(`已向 ${notificationTarget.value.username} 发送公告`);
+    notificationForm.title = "";
+    notificationForm.content = "";
+    notificationForm.link = "";
+    notificationForm.level = "info";
+  } catch (error) {
+    ui.error(getErrorText(error, "发送单用户公告失败"));
+  } finally {
+    sendingNotificationUserId.value = null;
+  }
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -355,8 +464,21 @@ onMounted(() => {
   border: 1px solid var(--hairline);
 }
 
+.notice-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .row-main {
   min-width: 0;
+}
+
+.notice-form {
+  grid-column: 1 / -1;
+  align-items: stretch;
+}
+
+.textarea {
+  min-height: 96px;
 }
 
 .meta {

@@ -1248,6 +1248,34 @@ class QuestionSecurityTests(APITestCase):
         delete_response = self.client.delete(f"/api/questions/{self.question.id}/")
         self.assertEqual(delete_response.status_code, 403)
 
+    def test_admin_can_store_and_append_review_note_for_question(self):
+        self.question.status = Question.Status.PENDING
+        self.question.save(update_fields=["status", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        approve_response = self.client.post(
+            f"/api/questions/{self.question.id}/approve/",
+            {"review_note": "first review note"},
+            format="json",
+        )
+        self.assertEqual(approve_response.status_code, 200)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.status, Question.Status.OPEN)
+        self.assertEqual(self.question.reviewer_id, self.admin.id)
+        self.assertEqual(self.question.review_note, "first review note")
+        self.assertIsNotNone(self.question.reviewed_at)
+
+        append_response = self.client.post(
+            f"/api/questions/{self.question.id}/append-review-note/",
+            {"note": "second review note"},
+            format="json",
+        )
+        self.assertEqual(append_response.status_code, 200)
+        self.question.refresh_from_db()
+        self.assertIn("first review note", self.question.review_note)
+        self.assertIn("second review note", self.question.review_note)
+        self.assertIn(self.admin.username, self.question.review_note)
+
     def test_owner_delete_hides_question(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.author_token.key}")
         response = self.client.delete(f"/api/questions/{self.question.id}/")
@@ -3547,6 +3575,28 @@ class UserManagementRecoveryTests(APITestCase):
         self.assertTrue(self.admin.is_active)
         self.assertFalse(self.super_admin_target.is_active)
         self.assertFalse(self.normal_active.is_active)
+
+    def test_admin_can_send_notification_to_single_user(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/users/{self.normal_active.id}/send-notification/",
+            {
+                "title": "Manual notice",
+                "content": "Please check your profile page.",
+                "link": "/profile",
+                "level": "warning",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        notification = UserNotification.objects.get(
+            user=self.normal_active,
+            title="Manual notice",
+        )
+        self.assertEqual(notification.actor_id, self.admin.id)
+        self.assertEqual(notification.content, "Please check your profile page.")
+        self.assertEqual(notification.link, "/profile")
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
 
     def test_admin_bulk_set_role_is_forbidden(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
