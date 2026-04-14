@@ -15,7 +15,7 @@
           :contributors="schedulePageContributors"
           title="本页录入者"
           creator-badge-text="录入者"
-          empty-text="当前筛选下暂无录入者"
+          empty-text="当前页面暂无录入者"
         />
       </div>
       <div class="toolbar">
@@ -110,7 +110,7 @@
           :contributors="noticePageContributors"
           title="本页录入者"
           creator-badge-text="录入者"
-          empty-text="当前筛选下暂无录入者"
+          empty-text="当前页面暂无录入者"
         />
       </div>
 
@@ -315,6 +315,7 @@ const activeSectionDescriptionHtml = computed(() => {
 const scheduleYears = ref([new Date().getFullYear()]);
 const activeScheduleYear = ref(new Date().getFullYear());
 const scheduleRows = ref([]);
+const allScheduleRows = ref([]);
 const noticeOptions = ref([]);
 const loadingSchedules = ref(false);
 const savingSchedule = ref(false);
@@ -338,10 +339,10 @@ const noticeForm = reactive({ title: "", content_md: "", series: "icpc", year: n
 
 const activeNotice = computed(() => noticeRows.value.find((item) => item.id === activeNoticeId.value) || null);
 const schedulePageContributors = computed(() =>
-  aggregateCreatorContributors(scheduleRows.value, { userKey: "created_by" }),
+  aggregateCreatorContributors(allScheduleRows.value, { userKey: "created_by" }),
 );
 const noticePageContributors = computed(() =>
-  aggregateCreatorContributors(noticeRows.value, {
+  aggregateCreatorContributors(noticeOptions.value, {
     userKey: "created_by",
     getTime: (item) => item?.published_at || item?.created_at || null,
   }),
@@ -461,12 +462,14 @@ async function loadScheduleYears() {
   try {
     const rows = await fetchAll("/competition-schedules/", {}, controller.signal);
     if (!requests.isCurrent("schedule-years", controller)) return;
+    allScheduleRows.value = rows;
     const years = rows.map((item) => Number(String(item.event_date || "").slice(0, 4))).filter(Number.isFinite);
     scheduleYears.value = [...new Set(years)].sort((a, b) => b - a);
     if (!scheduleYears.value.length) scheduleYears.value = [new Date().getFullYear()];
     if (!scheduleYears.value.includes(Number(activeScheduleYear.value))) activeScheduleYear.value = scheduleYears.value[0];
   } catch (error) {
     if (isRequestCanceled(error) || !requests.isCurrent("schedule-years", controller)) return;
+    allScheduleRows.value = [];
     throw error;
   } finally {
     requests.release("schedule-years", controller);

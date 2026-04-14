@@ -14,7 +14,7 @@
           :contributors="trickPageContributors"
           title="本页录入者"
           creator-badge-text="录入者"
-          empty-text="当前筛选下暂无录入者"
+          empty-text="当前页面暂无录入者"
         />
       </section>
 
@@ -799,17 +799,7 @@ function buildTrickListParams(pageNo = 1) {
 }
 
 function buildTrickContributorQuery() {
-  const params = new URLSearchParams({
-    page_size: "200",
-    order: "created_newest",
-  });
-  if (trickFilters.search.trim()) {
-    params.set("search", trickFilters.search.trim());
-  }
-  if (trickFilters.termId) {
-    params.set("term", String(trickFilters.termId));
-  }
-  return `/tricks/?${params.toString()}`;
+  return "/tricks/?page_size=200&order=created_newest";
 }
 
 async function loadTrickPageContributors() {

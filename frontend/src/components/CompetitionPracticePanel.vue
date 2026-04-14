@@ -80,7 +80,7 @@
         :contributors="practicePageContributors"
         title="本页录入者"
         creator-badge-text="录入者"
-        empty-text="当前筛选下暂无录入者"
+        empty-text="当前页面暂无录入者"
       />
     </section>
 
@@ -267,6 +267,7 @@ const stageOptions = [
 const taxonomy = reactive({ count: 0, years: [], sources: [] });
 const filters = reactive({ year: FILTER_ALL, series: FILTER_ALL, stage: FILTER_ALL });
 const rows = ref([]);
+const allPracticeRows = ref([]);
 const proposals = ref([]);
 const loadingRows = ref(false);
 const loadingProposals = ref(false);
@@ -290,7 +291,7 @@ const proposalForm = reactive({
 
 const yearOptions = computed(() => [FILTER_ALL, ...taxonomy.years]);
 const practicePageContributors = computed(() =>
-  aggregateCreatorContributors(rows.value, { userKey: "created_by" }),
+  aggregateCreatorContributors(allPracticeRows.value, { userKey: "created_by" }),
 );
 
 function labelOf(options, key) {
@@ -384,6 +385,29 @@ async function loadRows() {
   }
 }
 
+async function loadAllPracticeContributorRows() {
+  const controller = requests.replace("all-practice-contributors");
+  try {
+    const nextRows = await fetchAll(
+      "/competition-practice-links/",
+      {},
+      controller.signal,
+    );
+    if (!requests.isCurrent("all-practice-contributors", controller)) return;
+    allPracticeRows.value = nextRows;
+  } catch (error) {
+    if (
+      isRequestCanceled(error) ||
+      !requests.isCurrent("all-practice-contributors", controller)
+    ) {
+      return;
+    }
+    allPracticeRows.value = [];
+  } finally {
+    requests.release("all-practice-contributors", controller);
+  }
+}
+
 function resetProposalForm() {
   proposalForm.target_entry = "";
   proposalForm.proposed_year = Number(filters.year) || taxonomy.years[0] || new Date().getFullYear();
@@ -473,7 +497,12 @@ async function reviewProposal(item, action) {
     });
     ui.success(action === "approve" ? "申请已通过" : "申请已驳回");
     delete reviewNotes[item.id];
-    await Promise.all([loadTaxonomy(), loadRows(), loadProposals()]);
+    await Promise.all([
+      loadTaxonomy(),
+      loadRows(),
+      loadAllPracticeContributorRows(),
+      loadProposals(),
+    ]);
   } catch (error) {
     ui.error(getErrorText(error, "审核失败"));
   }
@@ -493,7 +522,12 @@ async function removePracticeRow(row) {
       resetProposalForm();
     }
     ui.success("补题条目已删除");
-    await Promise.all([loadTaxonomy(), loadRows(), auth.isManager ? loadProposals() : Promise.resolve()]);
+    await Promise.all([
+      loadTaxonomy(),
+      loadRows(),
+      loadAllPracticeContributorRows(),
+      auth.isManager ? loadProposals() : Promise.resolve(),
+    ]);
   } catch (error) {
     ui.error(getErrorText(error, "删除补题条目失败"));
   } finally {
@@ -505,7 +539,7 @@ watch(() => [filters.year, filters.series, filters.stage], () => loadRows());
 
 onMounted(async () => {
   try {
-    await Promise.all([loadTaxonomy(), loadRows()]);
+    await Promise.all([loadTaxonomy(), loadRows(), loadAllPracticeContributorRows()]);
     resetProposalForm();
     if (auth.isManager) await loadProposals();
   } catch (error) {
