@@ -171,7 +171,13 @@
     </Transition>
 
     <Transition name="mobile-drawer">
-      <div v-if="showMobileMenu" class="mobile-panel" role="dialog" aria-modal="true" aria-label="移动端菜单">
+      <div
+        v-if="showMobileMenu"
+        class="mobile-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="移动端菜单"
+      >
         <div class="mobile-theme-group">
           <span class="mobile-theme-label">切换主题</span>
           <div class="mobile-theme-options">
@@ -266,6 +272,8 @@ const pinnedDropdownKey = ref("");
 const suppressDropdownHover = ref(false);
 let unreadTimer = null;
 let dropdownCloseTimer = null;
+let previousDocumentOverflow = "";
+let previousBodyOverflow = "";
 
 const themeOptions = computed(() => theme.options);
 const activeThemeLabel = computed(() => theme.activeTheme?.label || "Theme");
@@ -397,7 +405,7 @@ const primaryNav = computed(() => {
     },
     {
       key: "about",
-      defaultName: "关于AlgoWiki",
+      defaultName: "文档",
       defaultDisplayOrder: 40,
       to: { name: "extra", params: { slug: "about" } },
       kind: "route",
@@ -417,9 +425,17 @@ const primaryNav = computed(() => {
   return configuredItems
     .map((item) => {
       const config = headerNavConfigMap.value.get(String(item.key || ""));
+      const configuredTitle = String(config?.title || "").trim();
+      const resolvedTitle =
+        item.key === "about" &&
+        (!configuredTitle ||
+          configuredTitle === "关于AlgoWiki" ||
+          configuredTitle === "About AlgoWiki")
+          ? "文档"
+          : configuredTitle || item.defaultName || item.name || "";
       return {
         ...item,
-        name: String(config?.title || item.defaultName || item.name || "").trim(),
+        name: String(resolvedTitle).trim(),
         display_order: Number(config?.display_order ?? item.defaultDisplayOrder ?? 0),
         is_visible: config?.is_visible !== false,
       };
@@ -733,6 +749,29 @@ function handleDocumentClick(event) {
   }
 }
 
+function syncMobileMenuScrollLock(isOpen) {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+
+  const root = document.documentElement;
+  const body = document.body;
+  const isDrawerLayout = window.matchMedia("(max-width: 1100px)").matches;
+
+  if (isOpen && isDrawerLayout) {
+    previousDocumentOverflow = root.style.overflow;
+    previousBodyOverflow = body.style.overflow;
+    root.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return;
+  }
+
+  root.style.overflow = previousDocumentOverflow;
+  body.style.overflow = previousBodyOverflow;
+}
+
+function handleViewportResize() {
+  syncMobileMenuScrollLock(showMobileMenu.value);
+}
+
 watch(
   () => route.fullPath,
   () => {
@@ -745,6 +784,10 @@ watch(
     closeThemePanel();
   }
 );
+
+watch(showMobileMenu, (value) => {
+  syncMobileMenuScrollLock(value);
+});
 
 watch(
   () => auth.isAuthenticated,
@@ -768,12 +811,15 @@ onMounted(() => {
   refreshUnreadCount();
   startUnreadPolling();
   document.addEventListener("click", handleDocumentClick);
+  window.addEventListener("resize", handleViewportResize);
 });
 
 onBeforeUnmount(() => {
   stopUnreadPolling();
   clearDropdownCloseTimer();
+  syncMobileMenuScrollLock(false);
   document.removeEventListener("click", handleDocumentClick);
+  window.removeEventListener("resize", handleViewportResize);
 });
 </script>
 
@@ -1359,15 +1405,17 @@ onBeforeUnmount(() => {
     position: fixed;
     left: 0;
     top: var(--mobile-panel-top);
-    width: min(300px, calc(100vw - 56px));
+    width: min(380px, calc(100vw - 56px));
     max-width: calc(100vw - 56px);
-    height: calc(100vh - var(--mobile-panel-top));
+    height: calc(100dvh - var(--mobile-panel-top));
     padding: 10px 25px 12px;
     background: var(--surface-overlay);
     box-shadow: var(--shadow-sm);
     border-top: 1px solid var(--hairline);
     border-right: 1px solid var(--hairline);
     overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     z-index: 34;
   }
 

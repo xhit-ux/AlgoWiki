@@ -143,12 +143,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 
-import api from "../../services/api";
+import api, { isRequestCanceled } from "../../services/api";
+import { useRequestControllers } from "../../composables/useRequestControllers";
 import { useAuthStore } from "../../stores/auth";
 import { useUiStore } from "../../stores/ui";
 
 const auth = useAuthStore();
 const ui = useUiStore();
+const requests = useRequestControllers();
 
 const users = ref([]);
 const selectedUserIds = ref([]);
@@ -248,16 +250,34 @@ function buildParams(page = 1) {
   return params;
 }
 
+function isInvalidPageError(error) {
+  const detail = String(error?.response?.data?.detail || error?.message || "").trim();
+  return /invalid page|\u65e0\u6548\u9875\u9762/i.test(detail);
+}
+
 async function loadUsers(page = 1, append = false) {
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const controller = requests.replace("user-list");
   try {
-    const { data } = await api.get("/users/", { params: buildParams(page) });
+    const { data } = await api.get("/users/", {
+      params: buildParams(safePage),
+      signal: controller.signal,
+    });
+    if (!requests.isCurrent("user-list", controller)) return;
     const { results, count } = unpackListPayload(data);
     users.value = append ? appendUniqueById(users.value, results) : results;
-    updateMeta(count, users.value.length, page);
+    updateMeta(count, users.value.length, safePage);
     syncSelectedIds();
     syncNotificationTarget();
   } catch (error) {
+    if (isRequestCanceled(error)) return;
+    if (isInvalidPageError(error) && safePage > 1) {
+      await loadUsers(1, false);
+      return;
+    }
     ui.error(getErrorText(error, "用户列表加载失败"));
+  } finally {
+    requests.release("user-list", controller);
   }
 }
 
@@ -275,7 +295,8 @@ function resetFilters() {
   filters.is_active = "";
   filters.is_banned = "";
   filters.search = "";
-  loadUsers();
+  meta.page = 1;
+  loadUsers(1, false);
 }
 
 function selectNotificationTarget(item) {

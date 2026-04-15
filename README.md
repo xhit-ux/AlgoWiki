@@ -49,6 +49,7 @@
   - 修订提议流程（`pending` / `approved` / `rejected`）
   - 修订支持基于 `base/current/proposed` 的三方合并：非重叠修改自动 rebase，冲突时返回带标记的合并草稿供人工处理
   - 评论与收藏（star），支持评论回复与用户自助删除评论
+  - trick 技巧词条固定为 `数学 / 动态规划 / 字符串 / 计算几何 / 数据结构 / 图论 / 其他` 七类，提交时至少选择一类，不再支持新增自定义词条或词条候选审核
 
 - 社区问答
   - 问题发布、回答、采纳回答、关闭/重开问题
@@ -316,8 +317,8 @@ chmod +x deploy/server-compose-up.sh
 ```powershell
 cd D:\AlgoWiki_Project
 powershell -ExecutionPolicy Bypass -File .\scripts\quick-release-to-server.ps1 `
-  -ServerHost 139.224.212.247 `
-  -ServerUser root
+  -ServerHost <服务器公网IP> `
+  -ServerUser <服务器用户名>
 ```
 
 说明：

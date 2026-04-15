@@ -63,6 +63,7 @@
         <section class="section-block">
           <h3>&#x8D44;&#x6599;&#x8BBE;&#x7F6E;</h3>
           <div class="settings-grid">
+            <input class="input" v-model="profileForm.username" placeholder="昵称" />
             <input class="input" v-model="profileForm.school_name" placeholder="学校" />
           </div>
           <input class="input" v-model="profileForm.avatar_url" placeholder="头像链接" />
@@ -625,6 +626,7 @@ const starFilters = reactive({
 });
 
 const profileForm = reactive({
+  username: "",
   school_name: "",
   bio: "",
   avatar_url: "",
@@ -737,9 +739,12 @@ function isSchemaOutdatedError(error) {
 }
 
 function applyProfileForm(data) {
-  profileForm.school_name = data?.school_name || "";
-  profileForm.bio = data?.bio || "";
-  profileForm.avatar_url = data?.avatar_url || "";
+  const user = data?.user || data || {};
+  const settings = data?.profile_settings || data || {};
+  profileForm.username = user?.username || "";
+  profileForm.school_name = settings?.school_name || "";
+  profileForm.bio = settings?.bio || "";
+  profileForm.avatar_url = settings?.avatar_url || "";
 }
 
 function clearEmailChangeSession() {
@@ -824,7 +829,7 @@ async function loadProfile() {
   const { data } = await api.get("/me/");
   profile.value = data;
   const settings = data.profile_settings || data.user || {};
-  applyProfileForm(settings);
+  applyProfileForm(data);
   applyEmailChangeDefaults(settings);
 }
 
@@ -1119,16 +1124,21 @@ async function saveProfile() {
   savingProfile.value = true;
   try {
     const payload = {
+      username: profileForm.username.trim(),
       school_name: profileForm.school_name.trim(),
       bio: profileForm.bio.trim(),
       avatar_url: profileForm.avatar_url.trim(),
     };
+    if (!payload.username) {
+      ui.info("请填写昵称");
+      return;
+    }
     const { data } = await api.patch("/me/", payload);
     if (profile.value) {
       profile.value.user = data.user || profile.value.user;
       profile.value.profile_settings = data.profile_settings || payload;
     }
-    applyProfileForm(data.profile_settings || data.user || {});
+    applyProfileForm(data);
     if (auth.user && data.user) {
       auth.applyAuth(auth.token, data.user);
     }

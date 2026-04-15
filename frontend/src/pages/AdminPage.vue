@@ -6,7 +6,7 @@
         <h1>AlgoWiki 管理台</h1>
         <p class="meta">{{ currentSectionConfig.description }}</p>
         <p class="meta admin-shell-note">
-          当前管理页只保留用户管理、竞赛 Wiki 页面管理、赛事专区页面管理、AI 助手管理、操作日志和安全日志。
+          当前管理页只保留用户管理、竞赛 Wiki 页面管理、赛事专区页面管理、文档页面管理、AI 助手管理、操作日志和安全日志。
         </p>
       </div>
       <div class="admin-shell-actions">
@@ -47,6 +47,10 @@
         <CompetitionZoneManager />
       </article>
 
+      <article v-else-if="currentSection === 'document-pages'" class="admin-card full">
+        <DocumentPageManager />
+      </article>
+
       <article v-else-if="currentSection === 'assistant'" class="admin-card full">
         <AIAssistantManager />
       </article>
@@ -68,6 +72,7 @@ import { RouterLink, useRouter } from "vue-router";
 
 import AIAssistantManager from "../components/admin/AIAssistantManager.vue";
 import CompetitionZoneManager from "../components/admin/CompetitionZoneManager.vue";
+import DocumentPageManager from "../components/admin/DocumentPageManager.vue";
 import EventLogManager from "../components/admin/EventLogManager.vue";
 import SecurityLogManager from "../components/admin/SecurityLogManager.vue";
 import UserManager from "../components/admin/UserManager.vue";
@@ -96,6 +101,12 @@ const adminSections = [
     description: "管理赛事专区下级菜单的页面入口、顺序、隐藏、删除和新增。",
     routeName: "manage-competition-zone",
   },
+  {
+    key: "document-pages",
+    label: "文档页面管理",
+    description: "管理“文档”页左侧子页面的新增、移动、隐藏、删除和重命名。",
+    routeName: "manage-document-pages",
+  },
   { key: "assistant", label: "AI 助手管理", description: "管理 AI 模型配置、调用限制和展示开关。", routeName: "manage-assistant" },
   { key: "events", label: "操作日志", description: "查看站内操作事件并导出日志。", routeName: "manage-events" },
   { key: "security", label: "安全日志", description: "查看登录与账号安全事件。", routeName: "manage-security" },
@@ -107,7 +118,9 @@ const adminSectionMap = new Map(adminSections.map((item) => [item.key, item]));
 const adminSectionGroups = [
   {
     label: "基础管理",
-    items: ["users", "competition-wiki", "competition-zone", "assistant"].map((key) => adminSectionMap.get(key)),
+    items: ["users", "competition-wiki", "competition-zone", "document-pages", "assistant"].map((key) =>
+      adminSectionMap.get(key)
+    ),
   },
   {
     label: "审计日志",

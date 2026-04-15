@@ -578,6 +578,12 @@
             class="markdown trick-markdown"
             v-html="renderMarkdown(item.content_md || '')"
           ></div>
+          <textarea
+            v-if="isPendingMode"
+            v-model="item._reviewNote"
+            class="textarea"
+            placeholder="驳回批注（可选，驳回后会通知用户）"
+          ></textarea>
         </div>
         <div class="review-actions">
           <button
@@ -732,6 +738,12 @@
         >
           批量驳回
         </button>
+        <input
+          v-if="isPendingMode"
+          v-model="bulkQuestionReviewNote"
+          class="input grow"
+          placeholder="批量驳回批注（可选）"
+        />
         <button class="btn" type="button" @click="resetQuestionFilters">
           重置
         </button>
@@ -758,6 +770,12 @@
             >
           </p>
           <p class="ticket-content">{{ item.content_md }}</p>
+          <textarea
+            v-if="isPendingMode"
+            v-model="item._reviewNote"
+            class="textarea"
+            placeholder="驳回批注（可选，驳回后会通知用户）"
+          ></textarea>
         </div>
         <div class="review-actions">
           <button
@@ -830,6 +848,12 @@
         >
           批量驳回
         </button>
+        <input
+          v-if="isPendingMode"
+          v-model="bulkAnswerReviewNote"
+          class="input grow"
+          placeholder="批量驳回批注（可选）"
+        />
         <button class="btn" type="button" @click="resetAnswerFilters">
           重置
         </button>
@@ -849,6 +873,12 @@
             {{ formatDateTime(item.created_at) }}
           </p>
           <p class="ticket-content">{{ item.content_md }}</p>
+          <textarea
+            v-if="isPendingMode"
+            v-model="item._reviewNote"
+            class="textarea"
+            placeholder="驳回批注（可选，驳回后会通知用户）"
+          ></textarea>
         </div>
         <div class="review-actions">
           <button
@@ -893,6 +923,7 @@ import api from "../services/api";
 import { renderInlineMarkdown, renderMarkdown } from "../services/markdown";
 import { renderUnifiedDiffHtml } from "../services/revisionDiff";
 import { useUiStore } from "../stores/ui";
+import { sortFixedTrickTerms } from "../utils/trickTerms";
 
 const ui = useUiStore();
 const router = useRouter();
@@ -965,7 +996,7 @@ const reviewSections = [
     description: "审核问答区回答。",
     routeName: "review-answers",
   },
-];
+].filter((item) => item.key !== "trick_terms");
 
 const reviewStatusOptions = [
   { key: "pending", label: "待审核" },
@@ -1022,6 +1053,8 @@ const selectedPendingQuestionIds = ref([]);
 const selectedPendingAnswerIds = ref([]);
 const bulkRevisionReviewNote = ref("");
 const bulkCommentReviewNote = ref("");
+const bulkQuestionReviewNote = ref("");
+const bulkAnswerReviewNote = ref("");
 const reviewingPracticeId = ref(null);
 const reviewingNoticeId = ref(null);
 const reviewingScheduleId = ref(null);
@@ -1432,7 +1465,7 @@ async function loadCurrentHistoryCounts() {
 async function loadTrickTerms() {
   try {
     const { results } = await fetchAllPages("/trick-terms/");
-    trickTerms.value = results;
+    trickTerms.value = sortFixedTrickTerms(results);
   } catch (error) {
     ui.error(getErrorText(error, "trick 词条列表加载失败"));
   }
@@ -1595,7 +1628,10 @@ async function loadPendingTricks() {
       params,
       getReviewStatusApiValues("tricks", currentReviewStatus.value),
     );
-    pendingTricks.value = results;
+    pendingTricks.value = results.map((item) => ({
+      ...item,
+      _reviewNote: item._reviewNote || "",
+    }));
   } catch (error) {
     ui.error(getErrorText(error, "trick 列表加载失败"));
   }
@@ -1630,7 +1666,10 @@ async function loadPendingQuestions() {
       params,
       getReviewStatusApiValues("questions", currentReviewStatus.value),
     );
-    pendingQuestions.value = results;
+    pendingQuestions.value = results.map((item) => ({
+      ...item,
+      _reviewNote: item._reviewNote || "",
+    }));
     syncSelectedIds(selectedPendingQuestionIds, pendingQuestions.value);
   } catch (error) {
     ui.error(getErrorText(error, "问题列表加载失败"));
@@ -1649,7 +1688,10 @@ async function loadPendingAnswers() {
       params,
       getReviewStatusApiValues("answers", currentReviewStatus.value),
     );
-    pendingAnswers.value = results;
+    pendingAnswers.value = results.map((item) => ({
+      ...item,
+      _reviewNote: item._reviewNote || "",
+    }));
     syncSelectedIds(selectedPendingAnswerIds, pendingAnswers.value);
   } catch (error) {
     ui.error(getErrorText(error, "回答列表加载失败"));
@@ -1917,7 +1959,10 @@ async function bulkReviewComments(action) {
 async function reviewTrick(item, status) {
   reviewingTrickId.value = item.id;
   try {
-    await api.post(`/tricks/${item.id}/set-status/`, { status });
+    await api.post(`/tricks/${item.id}/set-status/`, {
+      status,
+      review_note: item._reviewNote || "",
+    });
     ui.success(status === "approved" ? "trick 已通过" : "trick 已驳回");
     await reloadCurrentSection();
   } catch (error) {
@@ -1945,7 +1990,9 @@ async function reviewTrickTermSuggestion(item, status) {
 
 async function reviewQuestion(item, action) {
   try {
-    await api.post(`/questions/${item.id}/${action}/`);
+    await api.post(`/questions/${item.id}/${action}/`, {
+      review_note: item._reviewNote || "",
+    });
     ui.success(action === "approve" ? "问题已通过" : "问题已驳回");
     await reloadCurrentSection();
   } catch (error) {
@@ -1962,6 +2009,7 @@ async function bulkModerateQuestions(action) {
     const { data } = await api.post("/questions/bulk-moderate/", {
       ids: selectedPendingQuestionIds.value,
       action,
+      review_note: bulkQuestionReviewNote.value || "",
     });
     notifyBulkSummary(
       data,
@@ -1975,7 +2023,9 @@ async function bulkModerateQuestions(action) {
 
 async function reviewAnswer(item, action) {
   try {
-    await api.post(`/answers/${item.id}/${action}/`);
+    await api.post(`/answers/${item.id}/${action}/`, {
+      review_note: item._reviewNote || "",
+    });
     ui.success(action === "approve" ? "回答已通过" : "回答已驳回");
     await reloadCurrentSection();
   } catch (error) {
@@ -2014,6 +2064,7 @@ async function bulkModerateAnswers(action) {
     const { data } = await api.post("/answers/bulk-moderate/", {
       ids: selectedPendingAnswerIds.value,
       action,
+      review_note: bulkAnswerReviewNote.value || "",
     });
     notifyBulkSummary(
       data,

@@ -29,7 +29,9 @@ from .models import (
     CompetitionPracticeLinkProposal,
     CompetitionScheduleEntry,
     ContributionEvent,
+    DocumentPageSection,
     EmailVerificationTicket,
+    ExtensionPage,
     FriendlyLink,
     IssueTicket,
     Question,
@@ -37,6 +39,7 @@ from .models import (
     SecurityAuditLog,
     TeamMember,
     TrickEntry,
+    TrickEntryLike,
     TrickTerm,
     TrickTermSuggestion,
     PasswordHistory,
@@ -45,6 +48,7 @@ from .models import (
     User,
 )
 from .competition_calendar import NormalizedCompetitionEvent
+from .trick_terms import FIXED_TRICK_TERM_NAMES
 
 
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
@@ -1276,6 +1280,29 @@ class QuestionSecurityTests(APITestCase):
         self.assertIn("second review note", self.question.review_note)
         self.assertIn(self.admin.username, self.question.review_note)
 
+    def test_reject_question_sends_review_note_notification(self):
+        self.question.status = Question.Status.PENDING
+        self.question.save(update_fields=["status", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/questions/{self.question.id}/reject/",
+            {"review_note": "标题和内容都需要补充"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.status, Question.Status.HIDDEN)
+        self.assertEqual(self.question.review_note, "标题和内容都需要补充")
+
+        notification = UserNotification.objects.get(
+            user=self.author,
+            target_type="Question",
+            target_id=self.question.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("标题和内容都需要补充", notification.content)
+
     def test_owner_delete_hides_question(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.author_token.key}")
         response = self.client.delete(f"/api/questions/{self.question.id}/")
@@ -1572,9 +1599,40 @@ class AnswerModerationTests(APITestCase):
         }
         self.assertNotIn(self.answer.id, public_ids)
 
+    def test_reject_answer_sends_review_note_notification(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.responder_token.key}")
+        create_response = self.client.post(
+            "/api/answers/",
+            {"question": self.question.id, "content_md": "pending answer"},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, 201)
+        answer_id = create_response.data["id"]
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/answers/{answer_id}/reject/",
+            {"review_note": "回答过于简略，请补充证明"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        answer = Answer.objects.get(pk=answer_id)
+        self.assertEqual(answer.status, Answer.Status.HIDDEN)
+        self.assertEqual(answer.review_note, "回答过于简略，请补充证明")
+
+        notification = UserNotification.objects.get(
+            user=self.responder,
+            target_type="Answer",
+            target_id=answer_id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("回答过于简略，请补充证明", notification.content)
+
 
 class ArticleCommentFlowTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.category = Category.objects.create(name="Comment", slug="comment")
         self.author = User.objects.create_user(
             username="article_author", password="Password123", role=User.Role.ADMIN
@@ -1719,6 +1777,34 @@ class ArticleCommentFlowTests(APITestCase):
         pending.refresh_from_db()
         self.assertEqual(pending.status, ArticleComment.Status.VISIBLE)
 
+    def test_reject_comment_saves_review_note_and_notifies_author(self):
+        pending = ArticleComment.objects.create(
+            article=self.article_a,
+            author=self.user,
+            content="pending for reject",
+            status=ArticleComment.Status.PENDING,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.author_token.key}")
+        response = self.client.post(
+            f"/api/comments/{pending.id}/reject/",
+            {"review_note": "请补充更具体的反馈内容"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, ArticleComment.Status.HIDDEN)
+        self.assertEqual(pending.review_note, "请补充更具体的反馈内容")
+        self.assertEqual(pending.reviewer_id, self.author.id)
+        self.assertIsNotNone(pending.reviewed_at)
+
+        notification = UserNotification.objects.get(
+            user=self.user,
+            target_type="ArticleComment",
+            target_id=pending.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("请补充更具体的反馈内容", notification.content)
+
     def test_admin_default_list_excludes_hidden_comments(self):
         pending = ArticleComment.objects.create(
             article=self.article_a,
@@ -1739,6 +1825,28 @@ class ArticleCommentFlowTests(APITestCase):
         self.assertIn(self.parent.id, ids)
         self.assertIn(pending.id, ids)
         self.assertNotIn(hidden.id, ids)
+
+    def test_admin_can_append_review_note_to_hidden_comment(self):
+        hidden = ArticleComment.objects.create(
+            article=self.article_a,
+            author=self.other,
+            content="hidden comment",
+            status=ArticleComment.Status.HIDDEN,
+            review_note="first hidden note",
+            reviewer=self.author,
+            reviewed_at=timezone.now(),
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.author_token.key}")
+        response = self.client.post(
+            f"/api/comments/{hidden.id}/append-review-note/",
+            {"note": "second hidden note"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        hidden.refresh_from_db()
+        self.assertIn("first hidden note", hidden.review_note)
+        self.assertIn("second hidden note", hidden.review_note)
+        self.assertIn(self.author.username, hidden.review_note)
 
     def test_admin_can_bulk_reject_pending_comments(self):
         pending_a = ArticleComment.objects.create(
@@ -1946,6 +2054,7 @@ class ProfileAndMineEndpointsTests(APITestCase):
         response = self.client.patch(
             "/api/me/",
             {
+                "username": "student_renamed",
                 "school_name": "Algo University",
                 "bio": "Competitive programming learner",
                 "avatar_url": "https://example.com/avatar.png",
@@ -1954,6 +2063,7 @@ class ProfileAndMineEndpointsTests(APITestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("profile_settings", response.data)
+        self.assertEqual(response.data["user"]["username"], "student_renamed")
         self.assertEqual(response.data["user"]["school_name"], "Algo University")
         self.assertEqual(
             response.data["user"]["bio"], "Competitive programming learner"
@@ -1965,9 +2075,22 @@ class ProfileAndMineEndpointsTests(APITestCase):
             response.data["profile_settings"]["school_name"], "Algo University"
         )
         self.user.refresh_from_db()
+        self.assertEqual(self.user.username, "student_renamed")
         self.assertEqual(self.user.school_name, "Algo University")
         self.assertEqual(self.user.bio, "Competitive programming learner")
         self.assertEqual(self.user.avatar_url, "https://example.com/avatar.png")
+
+    def test_patch_me_rejects_duplicate_username(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+        response = self.client.patch(
+            "/api/me/",
+            {"username": "OTHER"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("username", response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, "student")
 
     def test_get_me_contains_profile_settings(self):
         self.user.school_name = "Algo University"
@@ -2542,6 +2665,41 @@ class RevisionMergeFlowTests(APITestCase):
         self.assertEqual(proposal.status, RevisionProposal.Status.PENDING)
         self.assertEqual(self.article.content_md, "alpha\nbeta current\ngamma\n")
 
+    def test_revision_reject_sends_review_note_notification(self):
+        proposal = RevisionProposal.objects.create(
+            article=self.article,
+            proposer=self.user,
+            base_title=self.article.title,
+            base_summary=self.article.summary,
+            base_content_md=self.article.content_md,
+            base_updated_at=self.article.updated_at,
+            proposed_title=self.article.title,
+            proposed_summary=self.article.summary,
+            proposed_content_md="alpha\nbeta proposed\ngamma\n",
+            reason="modify beta",
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/revisions/{proposal.id}/reject/",
+            {"review_note": "Please explain why this change is needed."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, RevisionProposal.Status.REJECTED)
+        self.assertEqual(
+            proposal.review_note, "Please explain why this change is needed."
+        )
+        notification = UserNotification.objects.get(
+            user=self.user,
+            target_type="RevisionProposal",
+            target_id=proposal.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("Please explain why", notification.content)
+
 
 class TrickEntryFlowTests(APITestCase):
     def setUp(self):
@@ -2568,6 +2726,7 @@ class TrickEntryFlowTests(APITestCase):
         self.approved = TrickEntry.objects.create(
             title="??? trick",
             content_md="?? `x & -x` ???? lowbit?",
+            keywords_text="lowbit bitwise",
             author=self.user,
             status=TrickEntry.Status.APPROVED,
         )
@@ -2587,6 +2746,26 @@ class TrickEntryFlowTests(APITestCase):
             name="树状数组",
             defaults={"is_active": True, "is_builtin": True},
         )
+        self.popular = TrickEntry.objects.create(
+            title="popular trick",
+            content_md="popular content",
+            keywords_text="tournament graph",
+            author=self.other_user,
+            status=TrickEntry.Status.APPROVED,
+        )
+
+        self.term = TrickTerm.objects.get(name="数据结构")
+        self.approved.terms.add(self.term)
+        self.popular.terms.add(self.term)
+        old_time = timezone.now() - timedelta(days=1)
+        TrickEntry.objects.filter(id=self.popular.id).update(
+            created_at=old_time,
+            updated_at=old_time,
+        )
+        self.popular.refresh_from_db()
+        TrickEntryLike.objects.create(user=self.admin, trick_entry=self.approved)
+        TrickEntryLike.objects.create(user=self.admin, trick_entry=self.popular)
+        TrickEntryLike.objects.create(user=self.user, trick_entry=self.popular)
 
     def test_public_list_only_returns_approved_entries(self):
         response = self.client.get("/api/tricks/")
@@ -2596,6 +2775,19 @@ class TrickEntryFlowTests(APITestCase):
         self.assertIn(self.approved.id, ids)
         self.assertNotIn(self.pending.id, ids)
         self.assertNotIn(self.rejected.id, ids)
+
+    def test_public_list_defaults_to_like_order_and_exposes_like_fields(self):
+        response = self.client.get("/api/tricks/")
+        self.assertEqual(response.status_code, 200)
+        items = response.data.get("results", response.data)
+        self.assertGreaterEqual(len(items), 2)
+        self.assertEqual(items[0]["id"], self.popular.id)
+        self.assertEqual(items[0]["like_count"], 2)
+        self.assertFalse(items[0]["is_liked"])
+        self.assertEqual(items[0]["keywords"], ["tournament", "graph"])
+        self.assertEqual(items[1]["id"], self.approved.id)
+        self.assertEqual(items[1]["like_count"], 1)
+        self.assertEqual(items[1]["keywords_text"], "lowbit bitwise")
 
     def test_authenticated_author_can_see_own_pending_entries(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
@@ -2607,12 +2799,30 @@ class TrickEntryFlowTests(APITestCase):
         self.assertIn(self.pending.id, ids)
         self.assertNotIn(self.rejected.id, ids)
 
+    def test_can_sort_tricks_by_created_newest(self):
+        response = self.client.get("/api/tricks/", {"order": "created_newest"})
+        self.assertEqual(response.status_code, 200)
+        items = response.data.get("results", response.data)
+        self.assertGreaterEqual(len(items), 2)
+        self.assertEqual(items[0]["id"], self.approved.id)
+        self.assertEqual(items[1]["id"], self.popular.id)
+
+    def test_search_matches_trick_keywords(self):
+        response = self.client.get("/api/tricks/", {"search": "graph"})
+        self.assertEqual(response.status_code, 200)
+        items = response.data.get("results", response.data)
+        ids = {item["id"] for item in items}
+        self.assertIn(self.popular.id, ids)
+        self.assertNotIn(self.approved.id, ids)
+
     def test_authenticated_user_can_create_trick_entry_with_pending_status(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
         response = self.client.post(
             "/api/tricks/",
             {
+                "title": "prefix sum trick",
                 "content_md": "sample trick\\n\\n![img](/wiki-assets/debug.png)",
+                "keywords_text": "prefix-sum  lowbit  prefix-sum",
                 "term_ids": [self.term.id],
             },
             format="json",
@@ -2620,52 +2830,151 @@ class TrickEntryFlowTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["author"]["username"], self.user.username)
         self.assertEqual(response.data["status"], TrickEntry.Status.PENDING)
-        self.assertTrue(response.data["title"])
+        self.assertEqual(response.data["title"], "prefix sum trick")
         self.assertEqual(len(response.data.get("terms") or []), 1)
         self.assertEqual(response.data["terms"][0]["id"], self.term.id)
+        self.assertEqual(response.data["keywords_text"], "prefix-sum lowbit")
+        self.assertEqual(response.data["keywords"], ["prefix-sum", "lowbit"])
 
     def test_admin_can_create_trick_entry_with_approved_status(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
         response = self.client.post(
             "/api/tricks/",
             {
+                "title": "closest pair trick",
                 "content_md": "admin trick content",
+                "keywords_text": "geometry closest-pair",
+                "term_ids": [self.term.id],
             },
             format="json",
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["status"], TrickEntry.Status.APPROVED)
         self.assertEqual(response.data["author"]["username"], self.admin.username)
+        self.assertEqual(response.data["title"], "closest pair trick")
+        self.assertEqual(response.data["keywords"], ["geometry", "closest-pair"])
+
+    def test_create_trick_requires_title_and_keywords(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+        response = self.client.post(
+            "/api/tricks/",
+            {
+                "content_md": "sample trick",
+                "term_ids": [self.term.id],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("title", response.data)
+        self.assertIn("keywords_text", response.data)
+
+    def test_authenticated_user_can_like_and_unlike_trick(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.other_token.key}")
+        like_response = self.client.post(
+            f"/api/tricks/{self.approved.id}/like/",
+            {},
+            format="json",
+        )
+        self.assertEqual(like_response.status_code, 200)
+        self.assertEqual(like_response.data["like_count"], 2)
+        self.assertTrue(like_response.data["is_liked"])
+        self.assertTrue(
+            TrickEntryLike.objects.filter(
+                user=self.other_user, trick_entry=self.approved
+            ).exists()
+        )
+
+        repeat_response = self.client.post(
+            f"/api/tricks/{self.approved.id}/like/",
+            {},
+            format="json",
+        )
+        self.assertEqual(repeat_response.status_code, 200)
+        self.assertEqual(repeat_response.data["like_count"], 2)
+
+        unlike_response = self.client.post(
+            f"/api/tricks/{self.approved.id}/unlike/",
+            {},
+            format="json",
+        )
+        self.assertEqual(unlike_response.status_code, 200)
+        self.assertEqual(unlike_response.data["like_count"], 1)
+        self.assertFalse(unlike_response.data["is_liked"])
+        self.assertFalse(
+            TrickEntryLike.objects.filter(
+                user=self.other_user, trick_entry=self.approved
+            ).exists()
+        )
+
+    def test_create_trick_requires_at_least_one_term(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+        response = self.client.post(
+            "/api/tricks/",
+            {
+                "title": "sample trick without term",
+                "content_md": "sample trick without term",
+                "keywords_text": "sample keyword",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("term_ids", response.data)
 
     def test_author_can_update_and_delete_own_entry(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
-        original_title = self.approved.title
+        updated_content = "updated trick requires review"
         update_response = self.client.patch(
             f"/api/tricks/{self.approved.id}/",
-            {"content_md": "??????????"},
+            {
+                "content_md": updated_content,
+                "keywords_text": "fenwick lowbit range-query",
+            },
             format="json",
         )
         self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.data["status"], TrickEntry.Status.PENDING)
+        self.assertEqual(update_response.data["content_md"], updated_content)
+        self.assertEqual(
+            update_response.data["keywords"],
+            ["fenwick", "lowbit", "range-query"],
+        )
         self.approved.refresh_from_db()
         self.assertEqual(self.approved.status, TrickEntry.Status.PENDING)
-        self.assertEqual(self.approved.title, original_title)
+        self.assertEqual(self.approved.content_md, updated_content)
+        self.assertEqual(self.approved.keywords_text, "fenwick lowbit range-query")
+
+        self.client.credentials()
+        public_response = self.client.get("/api/tricks/")
+        self.assertEqual(public_response.status_code, 200)
+        public_items = public_response.data.get("results", public_response.data)
+        self.assertNotIn(self.approved.id, {item["id"] for item in public_items})
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+        author_response = self.client.get(
+            "/api/tricks/", {"status": TrickEntry.Status.PENDING}
+        )
+        self.assertEqual(author_response.status_code, 200)
+        author_items = author_response.data.get("results", author_response.data)
+        self.assertIn(self.approved.id, {item["id"] for item in author_items})
 
         delete_response = self.client.delete(f"/api/tricks/{self.pending.id}/")
         self.assertEqual(delete_response.status_code, 204)
 
-    def test_author_can_clear_title_and_regenerate_from_content(self):
+    def test_author_cannot_clear_required_title(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
         update_response = self.client.patch(
             f"/api/tricks/{self.approved.id}/",
             {
                 "title": "",
                 "content_md": "regenerated title\n\nbody",
+                "keywords_text": self.approved.keywords_text,
             },
             format="json",
         )
-        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.status_code, 400)
+        self.assertIn("title", update_response.data)
         self.approved.refresh_from_db()
-        self.assertEqual(self.approved.title, "regenerated title")
+        self.assertEqual(self.approved.title, "??? trick")
 
     def test_non_author_cannot_update_or_delete_entry(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.other_token.key}")
@@ -2698,6 +3007,29 @@ class TrickEntryFlowTests(APITestCase):
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.status, TrickEntry.Status.APPROVED)
 
+    def test_reject_trick_sends_review_note_notification(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/tricks/{self.pending.id}/set-status/",
+            {
+                "status": TrickEntry.Status.REJECTED,
+                "review_note": "请补充关键词并完善示例",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, TrickEntry.Status.REJECTED)
+        self.assertEqual(self.pending.review_note, "请补充关键词并完善示例")
+
+        notification = UserNotification.objects.get(
+            user=self.user,
+            target_type="TrickEntry",
+            target_id=self.pending.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("请补充关键词并完善示例", notification.content)
+
     def test_admin_default_list_hides_rejected_entries(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
         response = self.client.get("/api/tricks/")
@@ -2707,6 +3039,24 @@ class TrickEntryFlowTests(APITestCase):
         self.assertIn(self.approved.id, ids)
         self.assertIn(self.pending.id, ids)
         self.assertNotIn(self.rejected.id, ids)
+
+    def test_admin_can_append_review_note_to_rejected_entry(self):
+        self.rejected.review_note = "first rejected note"
+        self.rejected.reviewer = self.admin
+        self.rejected.reviewed_at = timezone.now()
+        self.rejected.save(update_fields=["review_note", "reviewer", "reviewed_at", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/tricks/{self.rejected.id}/append-review-note/",
+            {"note": "second rejected note"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.rejected.refresh_from_db()
+        self.assertIn("first rejected note", self.rejected.review_note)
+        self.assertIn("second rejected note", self.rejected.review_note)
+        self.assertIn(self.admin.username, self.rejected.review_note)
 
     def test_admin_can_filter_pending_entries(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
@@ -2839,6 +3189,47 @@ class TrickTermSuggestionFlowTests(APITestCase):
         suggestion.refresh_from_db()
         self.assertEqual(suggestion.status, TrickTermSuggestion.Status.APPROVED)
         self.assertTrue(TrickTerm.objects.filter(name="点分治").exists())
+
+
+def _override_trick_pending_term_test(self):
+    self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+    response = self.client.post(
+        "/api/tricks/",
+        {
+            "content_md": "pending term sample",
+            "term_ids": [self.term.id],
+            "pending_term_names": ["点分治专用"],
+        },
+        format="json",
+    )
+    self.assertEqual(response.status_code, 400)
+    self.assertIn("pending_term_names", response.data)
+
+
+def _override_trick_term_suggestion_create_test(self):
+    self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.user_token.key}")
+    response = self.client.post(
+        "/api/trick-term-suggestions/", {"name": "虚树"}, format="json"
+    )
+    self.assertEqual(response.status_code, 403)
+
+
+def _override_trick_term_suggestion_review_test(self):
+    response = self.client.get("/api/trick-terms/")
+    self.assertEqual(response.status_code, 200)
+    items = response.data.get("results", response.data)
+    self.assertEqual([item["name"] for item in items], list(FIXED_TRICK_TERM_NAMES))
+
+
+TrickEntryFlowTests.test_trick_can_submit_pending_terms_and_show_after_term_approved = (
+    _override_trick_pending_term_test
+)
+TrickTermSuggestionFlowTests.test_authenticated_user_can_create_term_suggestion = (
+    _override_trick_term_suggestion_create_test
+)
+TrickTermSuggestionFlowTests.test_admin_can_approve_term_suggestion_and_create_term = (
+    _override_trick_term_suggestion_review_test
+)
 
 
 class IssueTicketAdminTests(APITestCase):
@@ -3015,6 +3406,29 @@ class IssueTicketAdminTests(APITestCase):
         self.ticket_unassigned.refresh_from_db()
         self.assertIsNone(self.ticket_unassigned.assignee_id)
         self.assertEqual(self.ticket_unassigned.status, IssueTicket.Status.RESOLVED)
+
+    def test_reject_ticket_sends_resolution_note_notification(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/issues/{self.ticket_unassigned.id}/set_status/",
+            {
+                "status": IssueTicket.Status.REJECTED,
+                "resolution_note": "这个需求暂不计划支持",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.ticket_unassigned.refresh_from_db()
+        self.assertEqual(self.ticket_unassigned.status, IssueTicket.Status.REJECTED)
+        self.assertEqual(self.ticket_unassigned.review_note, "这个需求暂不计划支持")
+
+        notification = UserNotification.objects.get(
+            user=self.author_b,
+            target_type="IssueTicket",
+            target_id=self.ticket_unassigned.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("这个需求暂不计划支持", notification.content)
 
     def test_set_status_rejects_invalid_assignee(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
@@ -3370,6 +3784,44 @@ class CompetitionPracticeLinkApiTests(APITestCase):
                 target_id=proposal.id,
             ).exists()
         )
+
+    def test_admin_can_reject_proposal_with_review_note_notification(self):
+        proposal = CompetitionPracticeLinkProposal.objects.create(
+            target_entry=self.entry,
+            proposer=self.proposer,
+            proposed_year=2024,
+            proposed_series=CompetitionPracticeLink.Series.ICPC,
+            proposed_stage=CompetitionPracticeLink.Stage.NETWORK,
+            proposed_short_name="Online Contest Update",
+            proposed_official_name="2024 ICPC Online Contest Update",
+            proposed_official_url="https://example.com/icpc-update",
+            proposed_event_date_text="2024-09-15",
+            proposed_organizer="Online",
+            proposed_practice_links=[{"label": "QOJ", "url": "https://qoj.ac/contest/1797"}],
+            proposed_practice_links_note="",
+            reason="update practice link",
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/competition-practice-proposals/{proposal.id}/reject/",
+            {"review_note": "The official link is not verifiable."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        proposal.refresh_from_db()
+        self.assertEqual(
+            proposal.status, CompetitionPracticeLinkProposal.Status.REJECTED
+        )
+        self.assertEqual(proposal.review_note, "The official link is not verifiable.")
+        notification = UserNotification.objects.get(
+            user=self.proposer,
+            target_type="CompetitionPracticeLinkProposal",
+            target_id=proposal.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("official link", notification.content)
 
     def test_admin_can_remove_entry(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
@@ -4404,6 +4856,127 @@ class ExtensionPageAccessTests(APITestCase):
         self.assertIn(self.page_disabled.slug, slugs)
 
 
+class DocumentPageSectionApiTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="doc_user",
+            password="Password123",
+            role=User.Role.NORMAL,
+        )
+        self.user_token = Token.objects.create(user=self.user)
+        self.admin = User.objects.create_user(
+            username="doc_admin",
+            password="Password123",
+            role=User.Role.ADMIN,
+        )
+        self.admin_token = Token.objects.create(user=self.admin)
+
+        self.page_public = ExtensionPage.objects.create(
+            title="Doc Public",
+            slug="doc-public",
+            access_level=ExtensionPage.AccessLevel.PUBLIC,
+            is_enabled=True,
+        )
+        self.page_auth = ExtensionPage.objects.create(
+            title="Doc Auth",
+            slug="doc-auth",
+            access_level=ExtensionPage.AccessLevel.AUTH,
+            is_enabled=True,
+        )
+        self.page_admin = ExtensionPage.objects.create(
+            title="Doc Admin",
+            slug="doc-admin",
+            access_level=ExtensionPage.AccessLevel.ADMIN,
+            is_enabled=True,
+        )
+        self.page_disabled = ExtensionPage.objects.create(
+            title="Doc Disabled",
+            slug="doc-disabled",
+            access_level=ExtensionPage.AccessLevel.PUBLIC,
+            is_enabled=False,
+        )
+
+        self.section_public = DocumentPageSection.objects.create(
+            title="公开文档",
+            key="doc-public",
+            page=self.page_public,
+            display_order=10,
+            is_visible=True,
+        )
+        self.section_auth = DocumentPageSection.objects.create(
+            title="登录文档",
+            key="doc-auth",
+            page=self.page_auth,
+            display_order=20,
+            is_visible=True,
+        )
+        self.section_admin = DocumentPageSection.objects.create(
+            title="管理员文档",
+            key="doc-admin",
+            page=self.page_admin,
+            display_order=30,
+            is_visible=True,
+        )
+        self.section_hidden = DocumentPageSection.objects.create(
+            title="隐藏文档",
+            key="doc-hidden",
+            page=self.page_public,
+            display_order=40,
+            is_visible=False,
+        )
+        self.section_disabled = DocumentPageSection.objects.create(
+            title="禁用页面文档",
+            key="doc-disabled",
+            page=self.page_disabled,
+            display_order=50,
+            is_visible=True,
+        )
+
+    def test_anonymous_only_sees_visible_public_document_sections(self):
+        response = self.client.get("/api/document-page-sections/")
+        self.assertEqual(response.status_code, 200)
+        keys = {item["key"] for item in response.data.get("results", response.data)}
+        self.assertIn(self.section_public.key, keys)
+        self.assertNotIn(self.section_auth.key, keys)
+        self.assertNotIn(self.section_admin.key, keys)
+        self.assertNotIn(self.section_hidden.key, keys)
+        self.assertNotIn(self.section_disabled.key, keys)
+
+    def test_authenticated_user_sees_public_and_auth_document_sections(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.user_token.key}")
+        response = self.client.get("/api/document-page-sections/")
+        self.assertEqual(response.status_code, 200)
+        keys = {item["key"] for item in response.data.get("results", response.data)}
+        self.assertIn(self.section_public.key, keys)
+        self.assertIn(self.section_auth.key, keys)
+        self.assertNotIn(self.section_admin.key, keys)
+        self.assertNotIn(self.section_hidden.key, keys)
+        self.assertNotIn(self.section_disabled.key, keys)
+
+    def test_manager_include_hidden_can_see_all_document_sections(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.get(
+            "/api/document-page-sections/",
+            {"include_hidden": "1"},
+        )
+        self.assertEqual(response.status_code, 200)
+        keys = {item["key"] for item in response.data.get("results", response.data)}
+        self.assertIn(self.section_public.key, keys)
+        self.assertIn(self.section_auth.key, keys)
+        self.assertIn(self.section_admin.key, keys)
+        self.assertIn(self.section_hidden.key, keys)
+        self.assertIn(self.section_disabled.key, keys)
+
+    def test_delete_section_removes_orphan_page(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.delete(
+            f"/api/document-page-sections/{self.section_auth.id}/"
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(DocumentPageSection.objects.filter(id=self.section_auth.id).exists())
+        self.assertFalse(ExtensionPage.objects.filter(id=self.page_auth.id).exists())
+
+
 class AnnouncementFlowTests(APITestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -4926,6 +5499,38 @@ class CompetitionScheduleApiTests(APITestCase):
         public_items = public_response.data.get("results", public_response.data)
         self.assertIn(notice_id, {item["id"] for item in public_items})
 
+    def test_notice_reject_sends_review_note_notification(self):
+        notice = CompetitionNotice.objects.create(
+            title="Pending User Notice",
+            content_md="pending notice body",
+            series=CompetitionNotice.Series.CCPC,
+            year=2026,
+            stage=CompetitionNotice.Stage.REGIONAL,
+            created_by=self.user,
+            updated_by=self.user,
+            is_visible=False,
+            status=CompetitionNotice.Status.PENDING,
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/competition-notices/{notice.id}/reject/",
+            {"review_note": "Please add the official announcement URL."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        notice.refresh_from_db()
+        self.assertEqual(notice.status, CompetitionNotice.Status.REJECTED)
+        self.assertEqual(notice.review_note, "Please add the official announcement URL.")
+        notification = UserNotification.objects.get(
+            user=self.user,
+            target_type="CompetitionNotice",
+            target_id=notice.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("official announcement", notification.content)
+
     def test_normal_user_can_submit_schedule_for_admin_review(self):
         self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.user_token.key}")
         create_response = self.client.post(
@@ -4973,6 +5578,38 @@ class CompetitionScheduleApiTests(APITestCase):
         public_response = self.client.get("/api/competition-schedules/")
         public_items = public_response.data.get("results", public_response.data)
         self.assertIn(entry_id, {item["id"] for item in public_items})
+
+    def test_schedule_reject_sends_review_note_notification(self):
+        entry = CompetitionScheduleEntry.objects.create(
+            event_date=timezone.localdate() + timedelta(days=14),
+            competition_time_range="09:00-12:00",
+            competition_type="Pending Schedule Contest",
+            location="Online",
+            qq_group="123456",
+            announcement=self.notice,
+            created_by=self.user,
+            updated_by=self.user,
+            status=CompetitionScheduleEntry.Status.PENDING,
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.admin_token.key}")
+        response = self.client.post(
+            f"/api/competition-schedules/{entry.id}/reject/",
+            {"review_note": "Please confirm the contest date first."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, CompetitionScheduleEntry.Status.REJECTED)
+        self.assertEqual(entry.review_note, "Please confirm the contest date first.")
+        notification = UserNotification.objects.get(
+            user=self.user,
+            target_type="CompetitionScheduleEntry",
+            target_id=entry.id,
+        )
+        self.assertEqual(notification.level, UserNotification.Level.WARNING)
+        self.assertIn("contest date", notification.content)
 
     def test_list_returns_notice_contributors(self):
         event = ContributionEvent.objects.create(

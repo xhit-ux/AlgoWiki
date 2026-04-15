@@ -306,6 +306,11 @@ const activeSectionDescription = computed(() => {
   return mapping[activeBuiltinView.value] || "当前分区为管理员可配置的自定义页面。";
 });
 const activeSectionDescriptionHtml = computed(() => {
+  if (activeBuiltinView.value === "tricks") {
+    return renderMarkdown(
+      "提交tirck前务必查阅[trick规范手册](https://www.algowiki.cn/extra/about?doc=trick-guide)了解规范",
+    );
+  }
   if (activeBuiltinView.value === "schedule") {
     return renderMarkdown("更全面的群聊收集以及比赛榜单可跳转到 [ACMer.info](https://acmer.info/)");
   }
@@ -801,7 +806,7 @@ onMounted(async () => {
 .form-grid--schedule { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .form-grid--notice { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .form-span { grid-column: 1 / -1; }
-.notice-layout { grid-template-columns: 260px minmax(0, 1fr); align-items: start; }
+.notice-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
 .notice-main { min-width: 0; display: grid; gap: 16px; }
 .notice-filter { position: sticky; top: 88px; display: grid; gap: 12px; }
 .filter-label { font-size: 13px; color: var(--text-quiet); }

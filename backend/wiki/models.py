@@ -309,6 +309,7 @@ class TrickEntry(TimeStampedModel):
 
     title = models.CharField(max_length=220)
     content_md = models.TextField()
+    keywords_text = models.CharField(max_length=255, blank=True, default="")
     author = models.ForeignKey(
         "User", related_name="trick_entries", on_delete=models.CASCADE
     )
@@ -335,6 +336,20 @@ class TrickEntry(TimeStampedModel):
 
     class Meta:
         ordering = ["-updated_at"]
+
+
+class TrickEntryLike(models.Model):
+    user = models.ForeignKey(
+        "User", related_name="trick_entry_likes", on_delete=models.CASCADE
+    )
+    trick_entry = models.ForeignKey(
+        TrickEntry, related_name="like_records", on_delete=models.CASCADE
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "trick_entry")
+        ordering = ["-created_at"]
 
 
 class TrickTerm(TimeStampedModel):
@@ -995,6 +1010,26 @@ class ExtensionPage(TimeStampedModel):
 
     class Meta:
         ordering = ["title"]
+
+
+class DocumentPageSection(TimeStampedModel):
+    title = models.CharField(max_length=120)
+    key = models.SlugField(max_length=120, unique=True)
+    page = models.ForeignKey(
+        ExtensionPage,
+        related_name="document_page_sections",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
+    is_visible = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ["display_order", "id"]
+
+    def __str__(self) -> str:
+        return self.title
 
 
 class CompetitionZoneSection(TimeStampedModel):

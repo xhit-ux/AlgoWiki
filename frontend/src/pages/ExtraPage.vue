@@ -1,14 +1,17 @@
 ﻿<template>
   <section class="extra-layout">
-    <article class="extra-main" v-if="isTricksPanel">
-      <div class="section-title">trick技巧</div>
-      <p class="meta">
-        {{
-          auth.isManager
-            ? "管理员提交会直接发布；支持 Markdown 文本，不提供图片上传。"
-            : "提交后需管理员审核通过才会对全部用户展示；支持 Markdown 文本，不提供图片上传。"
-        }}
-      </p>
+    <article class="trick-space" v-if="isTricksPanel">
+      <header class="trick-hero trick-hero--single-action">
+        <button
+          type="button"
+          class="trick-hero-action"
+          @click="toggleTrickComposer"
+        >
+          <span aria-hidden="true">＋</span>
+          <span>提交 / 编辑 Trick</span>
+        </button>
+      </header>
+
       <section class="section-contributors-card">
         <ContributorsPanel
           :contributors="trickPageContributors"
@@ -18,164 +21,132 @@
         />
       </section>
 
-      <section v-if="auth.isAuthenticated" class="trick-submit-toggle">
-        <Transition name="trick-form-reveal" mode="out-in">
-          <button
-            v-if="!showTrickForm"
-            key="trick-share-btn"
-            type="button"
-            class="btn trick-share-btn"
-            @click="showTrickForm = true"
-          >
-            ✎ 分享 trick
-          </button>
-
-          <section v-else key="trick-submit-form" class="trick-submit card">
-            <div class="trick-submit-head">
-              <h4>提交 trick</h4>
-              <div class="trick-submit-head-actions">
-                <span class="trick-submit-hint"
-                  >已选词条 {{ selectedTrickTerms.length }} 个 · 待审词条
-                  {{ trickForm.pending_term_names.length }} 个</span
-                >
-                <button
-                  type="button"
-                  class="btn btn-mini trick-collapse-btn"
-                  @click="showTrickForm = false"
-                >
-                  收起
-                </button>
-              </div>
+      <Transition name="trick-form-reveal">
+        <section v-if="showTrickForm" class="trick-submit card trick-submit-panel">
+          <div class="trick-submit-head">
+            <h4>提交 Trick</h4>
+            <div class="trick-submit-head-actions">
+              <span class="trick-submit-hint"
+                >已选词条 {{ selectedTrickTerms.length }} 个 · 至少选择 1 个</span
+              >
+              <button
+                type="button"
+                class="btn btn-mini trick-collapse-btn"
+                @click="showTrickForm = false"
+              >
+                收起
+              </button>
+            </div>
+          </div>
+          <input
+            class="input"
+            v-model="trickForm.title"
+            placeholder="标题（必填）"
+            required
+            aria-label="Trick 标题"
+          />
+          <label class="trick-field-stack">
+            <span class="trick-field-label">关键词（必填）</span>
+            <input
+              class="input"
+              v-model="trickForm.keywords_text"
+              placeholder="使用空格分隔，例如：lowbit 前缀和 位运算"
+              required
+            />
+          </label>
+          <div class="term-picker">
+            <div class="term-picker-head">
+              <strong>词条</strong>
+              <span class="meta">固定分类，支持多选</span>
             </div>
             <input
               class="input"
-              v-model="trickForm.title"
-              placeholder="标题（可选，不填会按正文自动生成）"
+              v-model="trickTermSearch"
+              placeholder="搜索词条（如：数学 / 图论）"
             />
-            <div class="term-picker">
-              <div class="term-picker-head">
-                <strong>词条</strong>
-                <span class="meta">支持多选，用于 ACM 检索</span>
-              </div>
-              <input
-                class="input"
-                v-model="trickTermSearch"
-                placeholder="搜索词条（如：前缀和 / 二分答案）"
-              />
-              <div class="term-options">
-                <label
-                  v-for="term in filteredTrickTerms"
-                  :key="term.id"
-                  class="term-option"
-                >
-                  <input
-                    type="checkbox"
-                    :value="term.id"
-                    :checked="trickForm.term_ids.includes(term.id)"
-                    @change="toggleTrickTerm(term.id)"
-                  />
-                  <span>{{ term.name }}</span>
-                </label>
-              </div>
-              <div class="term-selected" v-if="selectedTrickTerms.length">
-                <button
-                  type="button"
-                  v-for="term in selectedTrickTerms"
-                  :key="`selected-${term.id}`"
-                  class="term-chip term-chip-removable"
-                  @click="removeSelectedTrickTerm(term.id)"
-                >
-                  {{ term.name }} ×
-                </button>
-              </div>
-              <p v-else class="meta">当前未选择词条。</p>
-              <div class="pending-term-builder">
-                <input
-                  class="input"
-                  v-model="trickForm.pending_term_draft"
-                  placeholder="预输入待审核词条（审核通过后自动展示）"
-                  @keyup.enter.prevent="addPendingTermDraft"
-                />
-                <button
-                  class="btn add-tag-btn"
-                  type="button"
-                  @click="addPendingTermDraft"
-                >
-                  + 添加
-                </button>
-              </div>
-              <transition-group
-                name="pending-term-fade"
-                tag="div"
-                class="term-selected"
-                v-if="trickForm.pending_term_names.length"
+            <div class="term-options">
+              <label
+                v-for="term in filteredTrickTerms"
+                :key="term.id"
+                class="term-option"
               >
-                <button
-                  type="button"
-                  v-for="(name, idx) in trickForm.pending_term_names"
-                  :key="`pending-${name}-${idx}`"
-                  class="term-chip term-chip-pending"
-                  @click="removePendingTerm(idx)"
-                >
-                  {{ name }} · 待审 ×
-                </button>
-              </transition-group>
-              <p v-else class="meta">未添加待审核词条，可用“+ 添加”预先录入。</p>
+                <input
+                  type="checkbox"
+                  :value="term.id"
+                  :checked="trickForm.term_ids.includes(term.id)"
+                  @change="toggleTrickTerm(term.id)"
+                />
+                <span>{{ term.name }}</span>
+              </label>
             </div>
-            <div
-              class="trick-editor-shell"
-              :class="{ 'is-expanded': submitEditorExpanded }"
-            >
-              <div class="editor-toolbar">
-                <span class="editor-toolbar-label">左侧编写，右侧实时预览</span>
-                <button
-                  type="button"
-                  class="btn btn-mini"
-                  @click="submitEditorExpanded = !submitEditorExpanded"
-                >
-                  {{ submitEditorExpanded ? "收起编写" : "展开编写" }}
-                </button>
-              </div>
-              <div class="trick-editor-grid">
-                <section class="trick-editor-pane">
-                  <header class="trick-editor-pane-head">Markdown 原文</header>
-                  <textarea
-                    class="textarea trick-editor-textarea"
-                    v-model="trickForm.content_md"
-                    placeholder="使用 Markdown 编写 trick 内容"
-                  ></textarea>
-                </section>
-                <section class="trick-editor-pane">
-                  <header class="trick-editor-pane-head">渲染预览</header>
-                  <div
-                    class="markdown trick-editor-preview"
-                    v-html="renderMarkdown(trickForm.content_md || '')"
-                  ></div>
-                </section>
-              </div>
+            <div class="term-selected" v-if="selectedTrickTerms.length">
+              <button
+                type="button"
+                v-for="term in selectedTrickTerms"
+                :key="`selected-${term.id}`"
+                class="term-chip term-chip-removable"
+                @click="removeSelectedTrickTerm(term.id)"
+              >
+                {{ term.name }} ×
+              </button>
             </div>
-            <button
-              class="btn btn-accent"
-              :disabled="submittingTrick"
-              @click="submitTrick"
-            >
-              {{ submittingTrick ? "提交中..." : "提交 trick" }}
-            </button>
-          </section>
-        </Transition>
-      </section>
-      <p v-else class="meta">登录后可提交 trick。</p>
+            <p v-else class="meta">当前未选择词条，提交前至少选择 1 个。</p>
+          </div>
+          <div
+            class="trick-editor-shell"
+            :class="{ 'is-expanded': submitEditorExpanded }"
+          >
+            <div class="editor-toolbar">
+              <span class="editor-toolbar-label">左侧编写，右侧实时预览</span>
+              <button
+                type="button"
+                class="btn btn-mini"
+                @click="submitEditorExpanded = !submitEditorExpanded"
+              >
+                {{ submitEditorExpanded ? "收起编写" : "展开编写" }}
+              </button>
+            </div>
+            <div class="trick-editor-grid">
+              <section class="trick-editor-pane">
+                <header class="trick-editor-pane-head">Markdown 原文</header>
+                <textarea
+                  class="textarea trick-editor-textarea"
+                  v-model="trickForm.content_md"
+                  placeholder="使用 Markdown 编写 trick 内容"
+                ></textarea>
+              </section>
+              <section class="trick-editor-pane">
+                <header class="trick-editor-pane-head">渲染预览</header>
+                <div
+                  class="markdown trick-editor-preview"
+                  v-html="renderMarkdown(trickForm.content_md || '')"
+                ></div>
+              </section>
+            </div>
+          </div>
+          <button
+            class="btn btn-accent trick-submit-btn"
+            :disabled="submittingTrick"
+            @click="submitTrick"
+          >
+            {{ submittingTrick ? "提交中..." : "提交 trick" }}
+          </button>
+        </section>
+      </Transition>
 
-      <section class="trick-list card">
-        <div class="trick-filters">
+      <section class="trick-toolbar">
+        <label class="trick-search-field">
+          <span class="trick-search-icon" aria-hidden="true">⌕</span>
           <input
-            class="input"
+            class="trick-search-input"
             v-model="trickFilters.search"
-            placeholder="搜索 trick 标题或内容"
+            placeholder="搜索 trick 标题、关键词或内容"
             @keyup.enter="loadTricks(1, false)"
           />
+        </label>
+        <div class="trick-toolbar-actions">
           <select
-            class="select"
+            class="select trick-term-filter"
             v-model="trickFilters.termId"
             @change="loadTricks(1, false)"
           >
@@ -188,302 +159,434 @@
               {{ term.name }}
             </option>
           </select>
-          <button class="btn" @click="resetTrickFilters">重置</button>
-        </div>
-        <div class="trick-list-meta">
-          <span>共 {{ trickMeta.count }} 条</span>
-          <span v-if="trickFilters.search || trickFilters.termId"
-            >当前为筛选结果</span
-          >
-        </div>
-        <article class="trick-item" v-for="item in tricks" :key="item.id">
-          <header class="trick-item-head">
-            <h5
-              class="trick-item-title"
-              v-html="renderInlineMarkdown(item.title || '未命名 trick')"
-            ></h5>
-            <span class="trick-status-badge" v-if="showStatus(item)">{{
-              statusText(item.status)
-            }}</span>
-          </header>
-          <div class="trick-meta-row">
-            <span>发布者：{{ item.author?.username || "-" }}</span>
-            <span>发布时间：{{ formatTime(item.created_at) }}</span>
-          </div>
-          <div class="term-selected" v-if="item.terms?.length">
-            <span
-              v-for="term in sortTermItems(item.terms)"
-              :key="`term-${item.id}-${term.id}`"
-              class="term-chip"
-              >{{ term.name }}</span
-            >
-          </div>
-
-          <div
-            class="trick-action-row"
-            v-if="
-              canEditTrick(item) ||
-              canDeleteTrick(item) ||
-              canModerateTrick(item)
-            "
-          >
-            <span class="trick-status" v-if="showStatus(item)"
-              >状态：{{ statusText(item.status) }}</span
-            >
+          <div class="trick-sort-switch" role="tablist" aria-label="排序方式">
             <button
-              class="btn btn-mini"
-              v-if="canEditTrick(item)"
-              @click="startEditTrick(item)"
+              type="button"
+              class="trick-sort-btn"
+              :class="{ 'is-active': trickFilters.order === 'likes_desc' }"
+              @click="setTrickOrder('likes_desc')"
             >
-              {{ editingTrickId === item.id ? "取消编辑" : "编辑" }}
+              点赞优先
             </button>
             <button
-              class="btn btn-mini"
-              v-if="canDeleteTrick(item)"
-              @click="deleteTrick(item)"
+              type="button"
+              class="trick-sort-btn"
+              :class="{ 'is-active': trickFilters.order === 'created_newest' }"
+              @click="setTrickOrder('created_newest')"
             >
-              删除
-            </button>
-            <button
-              class="btn btn-mini"
-              v-if="canModerateTrick(item)"
-              @click="setTrickStatus(item, 'approved')"
-            >
-              通过
-            </button>
-            <button
-              class="btn btn-mini"
-              v-if="canModerateTrick(item)"
-              @click="setTrickStatus(item, 'rejected')"
-            >
-              拒绝
+              最新发布
             </button>
           </div>
-
-          <div v-if="editingTrickId === item.id" class="trick-edit-zone">
-            <div class="trick-action-row">
-              <span class="trick-status"
-                >已选词条 {{ editSelectedTrickTerms.length }} 个 · 待审词条
-                {{ editForm.pending_term_names.length }} 个</span
-              >
-              <button
-                class="btn btn-mini"
-                type="button"
-                @click="editTagEditorVisible = !editTagEditorVisible"
-              >
-                {{ editTagEditorVisible ? "收起 tag 编辑" : "编辑 tag" }}
-              </button>
-            </div>
-            <input
-              class="input"
-              v-model="editForm.title"
-              placeholder="标题（可选，不填会按正文自动生成）"
-            />
-            <div class="term-picker" v-if="editTagEditorVisible">
-              <div class="term-picker-head">
-                <strong>词条</strong>
-                <span class="meta">支持多选；可继续预输入待审核词条</span>
-              </div>
-              <input
-                class="input"
-                v-model="editTrickTermSearch"
-                placeholder="搜索词条（如：前缀和 / 二分答案）"
-              />
-              <div class="term-options">
-                <label
-                  v-for="term in filteredEditTrickTerms"
-                  :key="`edit-term-${term.id}`"
-                  class="term-option"
-                >
-                  <input
-                    type="checkbox"
-                    :value="term.id"
-                    :checked="editForm.term_ids.includes(term.id)"
-                    @change="toggleEditTrickTerm(term.id)"
-                  />
-                  <span>{{ term.name }}</span>
-                </label>
-              </div>
-              <div class="term-selected" v-if="editSelectedTrickTerms.length">
-                <button
-                  type="button"
-                  v-for="term in editSelectedTrickTerms"
-                  :key="`edit-selected-${term.id}`"
-                  class="term-chip term-chip-removable"
-                  @click="removeEditSelectedTrickTerm(term.id)"
-                >
-                  {{ term.name }} ×
-                </button>
-              </div>
-              <p v-else class="meta">当前未选择词条。</p>
-              <div class="pending-term-builder">
-                <input
-                  class="input"
-                  v-model="editForm.pending_term_draft"
-                  placeholder="预输入待审核词条（审核通过后自动展示）"
-                  @keyup.enter.prevent="addEditPendingTermDraft"
-                />
-                <button
-                  class="btn add-tag-btn"
-                  type="button"
-                  @click="addEditPendingTermDraft"
-                >
-                  + 添加
-                </button>
-              </div>
-              <transition-group
-                name="pending-term-fade"
-                tag="div"
-                class="term-selected"
-                v-if="editForm.pending_term_names.length"
-              >
-                <button
-                  type="button"
-                  v-for="(name, idx) in editForm.pending_term_names"
-                  :key="`edit-pending-${name}-${idx}`"
-                  class="term-chip term-chip-pending"
-                  @click="removeEditPendingTerm(idx)"
-                >
-                  {{ name }} · 待审 ×
-                </button>
-              </transition-group>
-              <p v-else class="meta">
-                未添加待审核词条，可用“+ 添加”预先录入。
-              </p>
-              <div
-                class="term-selected"
-                v-if="filteredOwnPendingTermNamesForEdit.length"
-              >
-                <button
-                  type="button"
-                  v-for="name in filteredOwnPendingTermNamesForEdit"
-                  :key="`edit-own-pending-${name}`"
-                  class="term-chip term-chip-pending"
-                  @click="addEditPendingTermFromMine(name)"
-                >
-                  {{ name }} · 我的待审 +
-                </button>
-              </div>
-              <p class="meta" v-else-if="ownPendingTermNames.length">
-                当前搜索下没有可添加的我的待审词条。
-              </p>
-            </div>
-            <div
-              class="trick-editor-shell"
-              :class="{ 'is-expanded': editEditorExpanded }"
-            >
-              <div class="editor-toolbar">
-                <span class="editor-toolbar-label">左侧编写，右侧实时预览</span>
-                <button
-                  type="button"
-                  class="btn btn-mini"
-                  @click="editEditorExpanded = !editEditorExpanded"
-                >
-                  {{ editEditorExpanded ? "收起编写" : "展开编写" }}
-                </button>
-              </div>
-              <div class="trick-editor-grid">
-                <section class="trick-editor-pane">
-                  <header class="trick-editor-pane-head">Markdown 原文</header>
-                  <textarea
-                    class="textarea trick-editor-textarea"
-                    v-model="editForm.content_md"
-                  ></textarea>
-                </section>
-                <section class="trick-editor-pane">
-                  <header class="trick-editor-pane-head">渲染预览</header>
-                  <div
-                    class="markdown trick-editor-preview"
-                    v-html="renderMarkdown(editForm.content_md || '')"
-                  ></div>
-                </section>
-              </div>
-            </div>
-            <button
-              class="btn btn-accent"
-              :disabled="savingEdit"
-              @click="saveEditTrick(item)"
-            >
-              {{ savingEdit ? "保存中..." : "保存修改" }}
-            </button>
-          </div>
-
-          <div
-            v-else
-            class="markdown trick-markdown"
-            v-html="renderMarkdown(item.content_md || '')"
-          ></div>
-        </article>
-
-        <p v-if="!tricks.length" class="meta">暂无 trick 记录。</p>
-
-        <div class="table-foot" v-if="trickMeta.next">
-          <button
-            class="btn"
-            :disabled="trickMeta.loadingMore"
-            @click="loadMoreTricks"
-          >
-            {{ trickMeta.loadingMore ? "加载中..." : "加载更多" }}
-          </button>
-        </div>
-      </section>
-    </article>
-
-    <article v-else class="extra-main extra-main--page">
-      <header class="extra-head">
-        <div class="extra-head-copy">
-          <div class="section-title">
-            {{ page?.title || fallbackPageTitle }}
-          </div>
-          <p class="meta">{{ page?.description || fallbackPageDescription }}</p>
-        </div>
-        <div v-if="canEditPage" class="extra-head-actions">
-          <button type="button" class="btn" @click="togglePageEditor">
-            {{ showPageEditor ? "收起编辑" : "编辑页面" }}
-          </button>
-        </div>
-      </header>
-
-      <section v-if="canEditPage && showPageEditor" class="page-editor card">
-        <div class="page-editor-grid">
-          <input
-            v-model.trim="pageForm.title"
-            class="input"
-            placeholder="页面标题"
-          />
-          <input
-            v-model.trim="pageForm.description"
-            class="input"
-            placeholder="页面简介"
-          />
-        </div>
-        <textarea
-          v-model="pageForm.content_md"
-          class="textarea"
-          placeholder="使用 Markdown 编写页面内容"
-        ></textarea>
-        <div class="trick-action-row">
-          <button
-            type="button"
-            class="btn btn-accent"
-            :disabled="savingPage"
-            @click="savePage"
-          >
-            {{ savingPage ? "保存中..." : "保存页面" }}
-          </button>
-          <button
-            type="button"
-            class="btn"
-            :disabled="savingPage"
-            @click="resetPageEditor"
-          >
+          <button class="btn trick-reset-btn" @click="resetTrickFilters">
             重置
           </button>
         </div>
       </section>
 
-      <section class="markdown page-markdown" v-html="htmlContent"></section>
+      <div class="trick-list-meta">
+        <span>共 {{ trickMeta.count }} 条</span>
+        <span
+          v-if="
+            trickFilters.search ||
+            trickFilters.termId ||
+            trickFilters.order !== 'likes_desc'
+          "
+          >当前为筛选结果</span
+        >
+      </div>
+
+      <section class="trick-grid">
+        <article
+          v-for="item in tricks"
+          :key="item.id"
+          class="trick-card"
+          @click="openTrick(item)"
+        >
+          <div class="trick-card-head">
+            <div class="trick-card-tags" v-if="item.terms?.length">
+              <span
+                v-for="term in visibleTrickTerms(item)"
+                :key="`card-term-${item.id}-${term.id}`"
+                :class="['trick-card-tag', trickTermToneClass(term)]"
+              >
+                {{ term.name }}
+              </span>
+              <span
+                v-if="hiddenTrickTermCount(item) > 0"
+                class="trick-card-tag trick-card-tag--muted"
+              >
+                +{{ hiddenTrickTermCount(item) }}
+              </span>
+            </div>
+            <span class="trick-status-badge" v-if="showStatus(item)">{{
+              statusText(item.status)
+            }}</span>
+          </div>
+
+          <h5
+            class="trick-card-title"
+            v-html="renderInlineMarkdown(item.title || '未命名 trick')"
+          ></h5>
+
+          <div class="trick-card-keywords" v-if="item.keywords?.length">
+            <span
+              v-for="keyword in visibleTrickKeywords(item)"
+              :key="`card-keyword-${item.id}-${keyword}`"
+              class="trick-keyword-chip"
+            >
+              {{ keyword }}
+            </span>
+            <span
+              v-if="hiddenTrickKeywordCount(item) > 0"
+              class="trick-keyword-chip trick-keyword-chip--muted"
+            >
+              +{{ hiddenTrickKeywordCount(item) }}
+            </span>
+          </div>
+
+          <footer class="trick-card-footer">
+            <div class="trick-card-author">
+              <span class="trick-card-author-icon" aria-hidden="true">◌</span>
+              <span>{{ item.author?.username || "-" }}</span>
+            </div>
+            <button
+              type="button"
+              class="trick-card-like"
+              :class="{ 'is-liked': Boolean(item.is_liked) }"
+              :disabled="isTrickLikeBusy(item.id)"
+              @click.stop="toggleTrickLike(item)"
+            >
+              <span aria-hidden="true">{{ item.is_liked ? "♥" : "♡" }}</span>
+              <span>{{ item.like_count || 0 }}</span>
+            </button>
+          </footer>
+        </article>
+      </section>
+
+      <p v-if="!tricks.length" class="meta trick-empty">暂无 trick 记录。</p>
+
+      <div class="table-foot" v-if="trickMeta.next">
+        <button
+          class="btn"
+          :disabled="trickMeta.loadingMore"
+          @click="loadMoreTricks"
+        >
+          {{ trickMeta.loadingMore ? "加载中..." : "加载更多" }}
+        </button>
+      </div>
+
+      <Teleport to="body">
+        <div
+          v-if="selectedTrick"
+          class="trick-modal"
+          @click.self="closeTrickModal"
+        >
+          <div class="trick-modal-backdrop" @click="closeTrickModal"></div>
+          <article class="trick-modal-card">
+            <header class="trick-modal-head">
+              <div class="trick-modal-head-copy">
+                <div class="trick-card-tags" v-if="selectedTrick.terms?.length">
+                  <span
+                    v-for="term in sortTermItems(selectedTrick.terms)"
+                    :key="`modal-term-${selectedTrick.id}-${term.id}`"
+                    :class="['trick-card-tag', trickTermToneClass(term)]"
+                  >
+                    {{ term.name }}
+                  </span>
+                </div>
+                <span class="trick-status-badge" v-if="showStatus(selectedTrick)">{{
+                  statusText(selectedTrick.status)
+                }}</span>
+              </div>
+              <button
+                type="button"
+                class="trick-modal-close"
+                @click="closeTrickModal"
+              >
+                ×
+              </button>
+            </header>
+
+            <div class="trick-modal-body">
+              <h3
+                class="trick-modal-title"
+                v-html="renderInlineMarkdown(selectedTrick.title || '未命名 trick')"
+              ></h3>
+
+              <div class="trick-modal-meta">
+                <span>发布者：{{ selectedTrick.author?.username || "-" }}</span>
+                <span>发布时间：{{ formatTime(selectedTrick.created_at) }}</span>
+                <span>点赞：{{ selectedTrick.like_count || 0 }}</span>
+              </div>
+
+              <div class="trick-card-keywords" v-if="selectedTrick.keywords?.length">
+                <span
+                  v-for="keyword in selectedTrick.keywords"
+                  :key="`modal-keyword-${selectedTrick.id}-${keyword}`"
+                  class="trick-keyword-chip"
+                >
+                  {{ keyword }}
+                </span>
+              </div>
+
+              <div
+                class="trick-action-row trick-modal-manage"
+                v-if="
+                  canEditTrick(selectedTrick) ||
+                  canDeleteTrick(selectedTrick) ||
+                  canModerateTrick(selectedTrick)
+                "
+              >
+                <button
+                  class="btn btn-mini"
+                  v-if="canEditTrick(selectedTrick)"
+                  @click.stop="startEditTrick(selectedTrick)"
+                >
+                  {{
+                    editingTrickId === selectedTrick.id ? "取消编辑" : "编辑"
+                  }}
+                </button>
+                <button
+                  class="btn btn-mini"
+                  v-if="canDeleteTrick(selectedTrick)"
+                  @click.stop="deleteTrick(selectedTrick)"
+                >
+                  删除
+                </button>
+                <button
+                  class="btn btn-mini"
+                  v-if="canModerateTrick(selectedTrick)"
+                  @click.stop="setTrickStatus(selectedTrick, 'approved')"
+                >
+                  通过
+                </button>
+                <button
+                  class="btn btn-mini"
+                  v-if="canModerateTrick(selectedTrick)"
+                  @click.stop="setTrickStatus(selectedTrick, 'rejected')"
+                >
+                  拒绝
+                </button>
+              </div>
+
+              <div
+                v-if="editingTrickId === selectedTrick.id"
+                class="trick-edit-zone trick-modal-editor"
+              >
+                <p
+                  v-if="!auth.isManager && selectedTrick.status === 'approved'"
+                  class="meta trick-edit-review-note"
+                >
+                  该 trick 当前已发布，保存修改后会重新进入待审核状态。
+                </p>
+                <label class="trick-field-stack">
+                  <span class="trick-field-label">关键词（必填）</span>
+                  <input
+                    class="input"
+                    v-model="editForm.keywords_text"
+                    placeholder="使用空格分隔，例如：lowbit 前缀和 位运算"
+                    required
+                  />
+                </label>
+                <div class="trick-action-row">
+                  <span class="trick-status"
+                    >已选词条 {{ editSelectedTrickTerms.length }} 个 · 至少选择
+                    1 个</span
+                  >
+                  <button
+                    class="btn btn-mini"
+                    type="button"
+                    @click="editTagEditorVisible = !editTagEditorVisible"
+                  >
+                    {{ editTagEditorVisible ? "收起 tag 编辑" : "编辑 tag" }}
+                  </button>
+                </div>
+                <div class="term-picker" v-if="editTagEditorVisible">
+                  <div class="term-picker-head">
+                    <strong>词条</strong>
+                    <span class="meta">固定分类，支持多选</span>
+                  </div>
+                  <input
+                    class="input"
+                    v-model="editTrickTermSearch"
+                    placeholder="搜索词条（如：数学 / 图论）"
+                  />
+                  <div class="term-options">
+                    <label
+                      v-for="term in filteredEditTrickTerms"
+                      :key="`edit-term-${term.id}`"
+                      class="term-option"
+                    >
+                      <input
+                        type="checkbox"
+                        :value="term.id"
+                        :checked="editForm.term_ids.includes(term.id)"
+                        @change="toggleEditTrickTerm(term.id)"
+                      />
+                      <span>{{ term.name }}</span>
+                    </label>
+                  </div>
+                  <div class="term-selected" v-if="editSelectedTrickTerms.length">
+                    <button
+                      type="button"
+                      v-for="term in editSelectedTrickTerms"
+                      :key="`edit-selected-${term.id}`"
+                      class="term-chip term-chip-removable"
+                      @click="removeEditSelectedTrickTerm(term.id)"
+                    >
+                      {{ term.name }} ×
+                    </button>
+                  </div>
+                  <p v-else class="meta">当前未选择词条，保存前至少选择 1 个。</p>
+                </div>
+                <div
+                  class="trick-editor-shell"
+                  :class="{ 'is-expanded': editEditorExpanded }"
+                >
+                  <div class="editor-toolbar">
+                    <span class="editor-toolbar-label"
+                      >左侧编写，右侧实时预览</span
+                    >
+                    <button
+                      type="button"
+                      class="btn btn-mini"
+                      @click="editEditorExpanded = !editEditorExpanded"
+                    >
+                      {{ editEditorExpanded ? "收起编写" : "展开编写" }}
+                    </button>
+                  </div>
+                  <div class="trick-editor-grid">
+                    <section class="trick-editor-pane">
+                      <header class="trick-editor-pane-head">Markdown 原文</header>
+                      <textarea
+                        class="textarea trick-editor-textarea"
+                        v-model="editForm.content_md"
+                      ></textarea>
+                    </section>
+                    <section class="trick-editor-pane">
+                      <header class="trick-editor-pane-head">渲染预览</header>
+                      <div
+                        class="markdown trick-editor-preview"
+                        v-html="renderMarkdown(editForm.content_md || '')"
+                      ></div>
+                    </section>
+                  </div>
+                </div>
+                <button
+                  class="btn btn-accent"
+                  :disabled="savingEdit"
+                  @click="saveEditTrick(selectedTrick)"
+                >
+                  {{ savingEdit ? "保存中..." : "保存修改" }}
+                </button>
+              </div>
+
+              <section
+                v-else
+                class="markdown trick-detail-markdown"
+                v-html="renderMarkdown(selectedTrick.content_md || '')"
+              ></section>
+            </div>
+
+            <footer class="trick-modal-foot">
+              <button
+                type="button"
+                class="trick-like-pill"
+                :class="{ 'is-liked': Boolean(selectedTrick.is_liked) }"
+                :disabled="isTrickLikeBusy(selectedTrick.id)"
+                @click.stop="toggleTrickLike(selectedTrick)"
+              >
+                <span aria-hidden="true">{{
+                  selectedTrick.is_liked ? "♥" : "♡"
+                }}</span>
+                <span
+                  >{{ selectedTrick.is_liked ? "已点赞" : "点赞" }} ({{
+                    selectedTrick.like_count || 0
+                  }})</span
+                >
+              </button>
+            </footer>
+          </article>
+        </div>
+      </Teleport>
     </article>
+
+    <div v-else class="extra-docs-layout">
+      <aside v-if="isDocsPanel" class="extra-doc-sidebar">
+        <div class="extra-doc-sidebar-head">
+          <span class="extra-doc-sidebar-kicker">文档</span>
+          <strong>子页面</strong>
+        </div>
+        <button
+          v-for="doc in resolvedDocPages"
+          :key="doc.key"
+          type="button"
+          class="extra-doc-link"
+          :class="{ 'extra-doc-link--active': doc.key === activeDocKey }"
+          @click="selectDocPage(doc.key)"
+        >
+          {{ doc.label }}
+        </button>
+      </aside>
+
+      <article class="extra-main extra-main--page">
+        <header class="extra-head">
+          <div class="extra-head-copy">
+            <div class="section-title" v-html="renderedPageTitle"></div>
+            <p
+              v-if="renderedPageDescription"
+              class="meta"
+              v-html="renderedPageDescription"
+            ></p>
+          </div>
+          <div v-if="canEditPage" class="extra-head-actions">
+            <button type="button" class="btn" @click="togglePageEditor">
+              {{ showPageEditor ? "收起编辑" : "编辑页面" }}
+            </button>
+          </div>
+        </header>
+
+        <section v-if="canEditPage && showPageEditor" class="page-editor card">
+          <div class="page-editor-grid">
+            <input
+              v-model.trim="pageForm.title"
+              class="input"
+              placeholder="页面标题"
+            />
+            <input
+              v-model.trim="pageForm.description"
+              class="input"
+              placeholder="页面简介"
+            />
+          </div>
+          <textarea
+            v-model="pageForm.content_md"
+            class="textarea"
+            placeholder="使用 Markdown 编写页面内容"
+          ></textarea>
+          <div class="trick-action-row">
+            <button
+              type="button"
+              class="btn btn-accent"
+              :disabled="savingPage"
+              @click="savePage"
+            >
+              {{ savingPage ? "保存中..." : "保存页面" }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :disabled="savingPage"
+              @click="resetPageEditor"
+            >
+              重置
+            </button>
+          </div>
+        </section>
+
+        <section class="markdown page-markdown" v-html="htmlContent"></section>
+      </article>
+    </div>
   </section>
 </template>
 
@@ -496,14 +599,16 @@ import {
   ref,
   watch,
 } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import ContributorsPanel from "../components/ContributorsPanel.vue";
+import { useDocumentNav } from "../composables/useDocumentNav";
 import api from "../services/api";
 import { renderInlineMarkdown, renderMarkdown } from "../services/markdown";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
 import { aggregateCreatorContributors } from "../utils/contributors";
+import { getTrickTermToneClass, sortFixedTrickTerms } from "../utils/trickTerms";
 
 const props = defineProps({
   slug: {
@@ -513,8 +618,122 @@ const props = defineProps({
 });
 
 const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 const ui = useUiStore();
+const { documentNav, loadDocumentNav } = useDocumentNav();
+
+const fallbackDocPages = Object.freeze([
+  {
+    key: "about",
+    slug: "about",
+    label: "关于AlgoWiki",
+    description: "站点定位、内容范围与协作方式说明。",
+    fallbackContent: `# 关于 AlgoWiki
+
+AlgoWiki 是一个公益性质的算法竞赛 Wiki 信息平台，围绕开源协作、信息共享、互助交流与友善社区建设展开，目标是帮助算法竞赛学习者更低成本地获取可靠资料、赛事信息与备赛经验。
+
+## 主要内容
+
+### 竞赛 Wiki
+
+竞赛 Wiki 以 [【打破信息差】萌新认识与入门算法竞赛](https://github.com/NullResot/xcpc) 为初始数据源，面向刚入门的竞赛选手，系统整理大学生算法竞赛相关信息。
+
+主要包含：
+
+1. 常见赛制与主要竞赛介绍。
+2. 入门训练建议、学习路线与资源汇总。
+3. 竞赛相关网站、项目与工具的整理。
+
+### 赛事专区
+
+赛事专区用于集中维护竞赛相关的时效信息与经验资料，主要包含：
+
+1. 比赛日历表：整理 Codeforces、AtCoder、牛客、洛谷等线上训练比赛日程。
+2. trick 技巧汇总：收集算法竞赛中的技巧、结论与经验，便于检索和复习。
+3. 赛事时刻表：整理年度线下竞赛安排，帮助选手了解比赛时间与阶段。
+4. 赛事公告：补充赛事时刻表中的详细说明，例如语言支持、邀请函、报名链接与特殊规则。
+5. 补题链接：以 [hh2048 / 历年 XCPC 赛事补题链接整理](https://github.com/hh2048/XCPC/tree/main/04%20-%20%E5%8E%86%E5%B9%B4XCPC%E8%B5%9B%E4%BA%8B%E8%A1%A5%E9%A2%98%E9%93%BE%E6%8E%A5%E6%95%B4%E7%90%86) 为初始数据源，帮助选手快速找到对应比赛的补题入口。
+
+## 其他页面
+
+1. 问答：用于提交网站建议、讨论竞赛问题与进行社区互助。
+2. 文档：用于记录站点说明、提交规范与管理员维护说明。
+3. 友链：用于收录和展示竞赛相关的优质网站。
+
+## 参与方式
+
+欢迎通过页面提交、问答反馈、GitHub 贡献等方式参与内容维护。官方交流群：1094808529。
+
+## 项目信息
+
+本项目起始于 2025 年 12 月 26 日 20:01:21。
+
+本项目正式上线于 2026 年 4 月 11 日。`,
+  },
+  {
+    key: "trick-guide",
+    slug: "trick-guide",
+    label: "trick 规范手册",
+    description: "用于说明 trick 技巧条目的提交要求。",
+    fallbackContent: `## 标题
+
+标题应尽量简短，直接概括 trick 的核心用途、结论或适用场景。
+
+## 词条
+
+发布时必须选择对应词条，可多选，但应与内容实际相关。
+
+## 内容
+
+1. 说明 trick 的核心思路、适用范围与限制。
+2. 尽量附上 1 道或多道相关例题，并使用 Markdown 链接。
+3. 不接受代码模板、题解全文搬运、无实际内容的结论堆砌。
+4. 请遵守 Markdown 与 LaTeX 语法，保证排版清晰、表达准确。`,
+  },
+  {
+    key: "announcement-guide",
+    slug: "announcement-guide",
+    label: "公告手册",
+    description: "用于说明赛事公告的编写范围与发布标准。",
+    fallbackContent: `## 适用范围
+
+用于补充赛事时刻表中需要单独说明的内容，例如中文信息、邀请函、官网链接、报名方式、特殊提醒等。
+
+## 标题
+
+标题应直接对应赛事名称；如有必要，可补充年份、站次或阶段信息。
+
+## 内容
+
+1. 先写关键结论，再补充来源链接与细节说明。
+2. 时间、地点、语言、报名规则等信息应尽量可核实。
+3. 涉及时效性内容时，请写明更新时间。
+4. 不发布无法确认、容易误导或与赛事无关的内容。`,
+  },
+  {
+    key: "admin-guide",
+    slug: "admin-guide",
+    label: "管理员手册",
+    description: "用于说明审核、管理与日常维护的基本原则。",
+    fallbackContent: `## 审核原则
+
+以准确、可验证、可维护为原则，优先检查事实、链接、格式、分类与可读性。
+
+## 处理建议
+
+1. 内容完整、来源可靠、格式清晰的可通过。
+2. 信息不足、格式混乱或存在明显错误的应驳回，并补充批注。
+3. 对重复内容优先合并处理，避免页面信息分散。
+4. 涉及账号、权限、审核记录等操作时，请保留必要说明与日志。`,
+  },
+]);
+
+const legacyDocContentBySlug = Object.freeze({
+  about: [
+    "# 关于 AlgoWiki\n\nAlgoWiki 是一个面向程序设计竞赛学习者的结构化知识库与社区协作平台。",
+  ],
+});
 
 const page = ref(null);
 const pageExists = ref(false);
@@ -531,23 +750,22 @@ const editTrickTermSearch = ref("");
 const submitEditorExpanded = ref(false);
 const editEditorExpanded = ref(false);
 const editTagEditorVisible = ref(false);
-const ownPendingTermNames = ref([]);
 const trickPageContributors = ref([]);
+const selectedTrickId = ref(null);
+const trickLikeBusyIds = ref([]);
 
 const trickForm = reactive({
   title: "",
   content_md: "",
+  keywords_text: "",
   term_ids: [],
-  pending_term_draft: "",
-  pending_term_names: [],
 });
 
 const editForm = reactive({
   title: "",
   content_md: "",
+  keywords_text: "",
   term_ids: [],
-  pending_term_draft: "",
-  pending_term_names: [],
 });
 
 const pageForm = reactive({
@@ -565,6 +783,7 @@ const trickMeta = reactive({
 const trickFilters = reactive({
   search: "",
   termId: "",
+  order: "likes_desc",
 });
 
 const currentPageSlug = computed(() => {
@@ -579,15 +798,93 @@ const currentPageSlug = computed(() => {
 });
 
 const isTricksPanel = computed(() => currentPageSlug.value === "tricks");
+const isDocsPanel = computed(() => currentPageSlug.value === "about");
+const resolvedDocPages = computed(() => {
+  const navSource =
+    documentNav.value.length > 0
+      ? documentNav.value
+      : fallbackDocPages.map((item, index) => ({
+          id: item.key || `fallback-doc-${index}`,
+          title: item.label,
+          key: item.key,
+          page_slug: item.slug,
+          page_title: item.label,
+          display_order: (index + 1) * 10,
+          is_visible: true,
+        }));
+
+  return navSource
+    .map((item) => {
+      const fallback =
+        fallbackDocPages.find(
+          (entry) =>
+            entry.key === String(item?.key || "").trim() ||
+            entry.slug === String(item?.page_slug || item?.slug || "").trim(),
+        ) || null;
+      const key = String(item?.key || fallback?.key || "").trim().toLowerCase();
+      const slug = String(
+        item?.page_slug || item?.slug || fallback?.slug || key,
+      )
+        .trim()
+        .toLowerCase();
+      if (!key || !slug) return null;
+      return {
+        key,
+        slug,
+        label: String(
+          item?.title || item?.page_title || fallback?.label || key,
+        ).trim(),
+        description: String(fallback?.description || "").trim(),
+        fallbackContent: fallback?.fallbackContent || "",
+      };
+    })
+    .filter((item) => item?.key && item?.slug);
+});
+const activeDocKey = computed(() => {
+  if (!isDocsPanel.value) return currentPageSlug.value;
+  const requestedKey = String(route.query.doc || "").trim().toLowerCase();
+  const matched = resolvedDocPages.value.find((item) => item.key === requestedKey);
+  return matched?.key || resolvedDocPages.value[0]?.key || "about";
+});
+const activeDoc = computed(
+  () =>
+    resolvedDocPages.value.find((item) => item.key === activeDocKey.value) ||
+    resolvedDocPages.value[0] ||
+    fallbackDocPages[0],
+);
+const pageRequestSlug = computed(() =>
+  isDocsPanel.value ? activeDoc.value.slug : currentPageSlug.value,
+);
 const canEditPage = computed(() => !isTricksPanel.value && auth.isManager);
-const fallbackPageTitle = computed(() => titleFromSlug(currentPageSlug.value));
+const fallbackPageTitle = computed(() =>
+  isDocsPanel.value
+    ? activeDoc.value.label
+    : titleFromSlug(currentPageSlug.value),
+);
 const fallbackPageDescription = computed(() =>
-  currentPageSlug.value === "about"
-    ? "项目介绍与路线图。"
-    : "当前页面暂未填写简介。",
+  isDocsPanel.value
+    ? activeDoc.value.description
+    : currentPageSlug.value === "about"
+      ? "项目介绍与路线图。"
+      : "当前页面暂未填写简介。",
+);
+const fallbackPageContent = computed(() =>
+  isDocsPanel.value ? activeDoc.value.fallbackContent : "",
 );
 const htmlContent = computed(() =>
-  renderMarkdown(page.value?.content_md || ""),
+  renderMarkdown(getEffectivePageContent(page.value)),
+);
+const renderedPageTitle = computed(() =>
+  renderInlineMarkdown(
+    pageExists.value ? page.value?.title || "" : fallbackPageTitle.value,
+  ),
+);
+const renderedPageDescription = computed(() =>
+  renderInlineMarkdown(
+    pageExists.value
+      ? page.value?.description || ""
+      : fallbackPageDescription.value,
+  ),
 );
 const filteredTrickTerms = computed(() => {
   const keyword = trickTermSearch.value.trim().toLowerCase();
@@ -622,40 +919,43 @@ const editSelectedTrickTerms = computed(() => {
     trickTerms.value.filter((term) => selected.has(term.id)),
   );
 });
-const filteredOwnPendingTermNamesForEdit = computed(() => {
-  const keyword = editTrickTermSearch.value.trim().toLowerCase();
-  const selectedNames = new Set(
-    editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
-  );
-  const chosenPendingNames = new Set(
-    editForm.pending_term_names.map((x) => String(x || "").toLowerCase()),
-  );
-  return ownPendingTermNames.value.filter((name) => {
-    const text = String(name || "").trim();
-    if (!text) return false;
-    const key = text.toLowerCase();
-    if (selectedNames.has(key) || chosenPendingNames.has(key)) return false;
-    if (!keyword) return true;
-    return key.includes(keyword);
-  });
-});
-
-const pinyinCollator = new Intl.Collator("zh-u-co-pinyin", {
-  sensitivity: "base",
-  numeric: true,
-  ignorePunctuation: true,
-});
+const selectedTrick = computed(
+  () =>
+    tricks.value.find((item) => Number(item?.id) === Number(selectedTrickId.value)) ||
+    null,
+);
 
 function sortTermItems(items) {
-  const source = Array.isArray(items) ? [...items] : [];
-  source.sort((a, b) =>
-    pinyinCollator.compare(String(a?.name || ""), String(b?.name || "")),
-  );
-  return source;
+  return sortFixedTrickTerms(items);
+}
+
+function normalizeDocContent(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+}
+
+function shouldUseFallbackDocContent(item) {
+  if (!isDocsPanel.value || !fallbackPageContent.value) return false;
+  const content = normalizeDocContent(item?.content_md);
+  if (!content) return true;
+  const slug = String(activeDoc.value?.slug || "").trim().toLowerCase();
+  const legacyItems = legacyDocContentBySlug[slug] || [];
+  return legacyItems.some((legacy) => normalizeDocContent(legacy) === content);
+}
+
+function getEffectivePageContent(item) {
+  if (!pageExists.value) return fallbackPageContent.value;
+  return shouldUseFallbackDocContent(item)
+    ? fallbackPageContent.value
+    : item?.content_md || "";
 }
 
 function titleFromSlug(slug) {
   if (slug === "about") return "关于 AlgoWiki";
+  if (slug === "trick-guide") return "trick 规范手册";
+  if (slug === "announcement-guide") return "公告手册";
+  if (slug === "admin-guide") return "管理员手册";
   return String(slug || "新页面")
     .split(/[-_]/)
     .filter(Boolean)
@@ -681,6 +981,30 @@ function statusText(status) {
 
 function showStatus(item) {
   return canEditTrick(item) || auth.isManager;
+}
+
+function visibleTrickTerms(item, limit = 2) {
+  const terms = sortTermItems(item?.terms || []);
+  return terms.slice(0, limit);
+}
+
+function hiddenTrickTermCount(item, limit = 2) {
+  const total = Array.isArray(item?.terms) ? item.terms.length : 0;
+  return Math.max(total - limit, 0);
+}
+
+function visibleTrickKeywords(item, limit = 4) {
+  const keywords = Array.isArray(item?.keywords) ? item.keywords : [];
+  return keywords.slice(0, limit);
+}
+
+function hiddenTrickKeywordCount(item, limit = 4) {
+  const total = Array.isArray(item?.keywords) ? item.keywords.length : 0;
+  return Math.max(total - limit, 0);
+}
+
+function trickTermToneClass(term) {
+  return getTrickTermToneClass(term?.name);
 }
 
 function canEditTrick(item) {
@@ -733,6 +1057,84 @@ function normalizeApiNextPath(nextValue) {
   }
 }
 
+function resetEditTrickState() {
+  editingTrickId.value = null;
+  editForm.content_md = "";
+  editForm.keywords_text = "";
+  editForm.term_ids = [];
+  editTagEditorVisible.value = false;
+  editTrickTermSearch.value = "";
+  editEditorExpanded.value = false;
+}
+
+function openTrick(item) {
+  selectedTrickId.value = Number(item?.id) || null;
+}
+
+function closeTrickModal() {
+  if (
+    selectedTrickId.value &&
+    editingTrickId.value &&
+    Number(editingTrickId.value) === Number(selectedTrickId.value)
+  ) {
+    resetEditTrickState();
+  }
+  selectedTrickId.value = null;
+}
+
+function toggleTrickComposer() {
+  if (showTrickForm.value) {
+    showTrickForm.value = false;
+    return;
+  }
+  if (!auth.isAuthenticated) {
+    ui.info("登录后可提交 trick");
+    return;
+  }
+  showTrickForm.value = true;
+}
+
+function setTrickOrder(order) {
+  const value = String(order || "").trim();
+  if (!value || value === trickFilters.order) return;
+  trickFilters.order = value;
+  loadTricks(1, false);
+}
+
+function isTrickLikeBusy(trickId) {
+  return trickLikeBusyIds.value.includes(Number(trickId));
+}
+
+function syncTrickRecord(record) {
+  if (!record?.id) return;
+  tricks.value = tricks.value.map((item) =>
+    Number(item.id) === Number(record.id) ? { ...item, ...record } : item,
+  );
+}
+
+async function toggleTrickLike(item) {
+  const trickId = Number(item?.id);
+  if (!Number.isFinite(trickId)) return;
+  if (!auth.isAuthenticated) {
+    ui.info("登录后可点赞 trick");
+    return;
+  }
+  if (isTrickLikeBusy(trickId)) return;
+
+  trickLikeBusyIds.value = [...trickLikeBusyIds.value, trickId];
+  try {
+    const action = item?.is_liked ? "unlike" : "like";
+    const { data } = await api.post(`/tricks/${trickId}/${action}/`, {});
+    syncTrickRecord(data);
+  } catch (error) {
+    ui.error(getErrorText(error, "点赞操作失败"));
+  } finally {
+    trickLikeBusyIds.value = trickLikeBusyIds.value.filter(
+      (value) => value !== trickId,
+    );
+  }
+}
+
 function getErrorText(error, fallback = "操作失败") {
   const payload = error?.response?.data;
   if (!payload) return fallback;
@@ -743,8 +1145,25 @@ function getErrorText(error, fallback = "操作失败") {
 
 function applyPageToForm(item) {
   pageForm.title = item?.title || fallbackPageTitle.value;
-  pageForm.description = item?.description || "";
-  pageForm.content_md = item?.content_md || "";
+  pageForm.description = item?.description || fallbackPageDescription.value;
+  pageForm.content_md = getEffectivePageContent(item);
+}
+
+function selectDocPage(key) {
+  if (!isDocsPanel.value) return;
+  const targetKey = String(key || "").trim().toLowerCase();
+  if (!resolvedDocPages.value.some((item) => item.key === targetKey)) return;
+  const nextQuery = { ...route.query };
+  if (targetKey === "about") {
+    delete nextQuery.doc;
+  } else {
+    nextQuery.doc = targetKey;
+  }
+  router.replace({
+    name: String(route.name || "extra"),
+    params: route.params,
+    query: nextQuery,
+  });
 }
 
 async function loadPage() {
@@ -753,17 +1172,13 @@ async function loadPage() {
   pageExists.value = false;
   trickPageContributors.value = [];
   try {
-    const { data } = await api.get(`/pages/${currentPageSlug.value}/`);
+    const { data } = await api.get(`/pages/${pageRequestSlug.value}/`);
     page.value = data;
     pageExists.value = true;
     applyPageToForm(data);
   } catch {
-    page.value = {
-      title: fallbackPageTitle.value,
-      description: fallbackPageDescription.value,
-      content_md: "",
-    };
-    applyPageToForm(page.value);
+    page.value = null;
+    applyPageToForm(null);
   }
 }
 
@@ -798,11 +1213,11 @@ async function savePage() {
     };
 
     if (pageExists.value) {
-      ({ data } = await api.patch(`/pages/${currentPageSlug.value}/`, payload));
+      ({ data } = await api.patch(`/pages/${pageRequestSlug.value}/`, payload));
     } else {
       ({ data } = await api.post("/pages/", {
         ...payload,
-        slug: currentPageSlug.value,
+        slug: pageRequestSlug.value,
       }));
       pageExists.value = true;
     }
@@ -821,7 +1236,7 @@ async function savePage() {
 function buildTrickListParams(pageNo = 1) {
   const params = {
     page: pageNo,
-    order: "created_newest",
+    order: trickFilters.order || "likes_desc",
   };
   if (trickFilters.search.trim()) params.search = trickFilters.search.trim();
   if (trickFilters.termId) params.term = trickFilters.termId;
@@ -858,6 +1273,12 @@ async function loadTricks(pageNo = 1, append = false) {
   tricks.value = append ? [...tricks.value, ...parsed.results] : parsed.results;
   trickMeta.count = parsed.count;
   trickMeta.next = parsed.next;
+  if (
+    selectedTrickId.value &&
+    !tricks.value.some((item) => Number(item.id) === Number(selectedTrickId.value))
+  ) {
+    selectedTrickId.value = null;
+  }
   if (!append && pageNo === 1) {
     await loadTrickPageContributors();
   }
@@ -874,43 +1295,10 @@ async function loadTrickTerms() {
       all.push(...parsed.results);
       nextPath = normalizeApiNextPath(parsed.next);
     }
-    trickTerms.value = all;
+    trickTerms.value = sortTermItems(all);
   } catch (error) {
-    trickTerms.value = all;
+    trickTerms.value = sortTermItems(all);
     ui.error(getErrorText(error, "词条列表加载失败"));
-  }
-}
-
-async function loadOwnPendingTermNames() {
-  if (!auth.isAuthenticated) {
-    ownPendingTermNames.value = [];
-    return;
-  }
-
-  const all = [];
-  let nextPath = "/trick-term-suggestions/?status=pending&page_size=200";
-
-  try {
-    while (nextPath) {
-      const { data } = await api.get(nextPath);
-      const parsed = unpackListPayload(data, all.length);
-      all.push(...parsed.results);
-      nextPath = normalizeApiNextPath(parsed.next);
-    }
-
-    const uniqueNames = [];
-    const seen = new Set();
-    for (const item of all) {
-      const name = String(item?.name || "").trim();
-      if (!name) continue;
-      const key = name.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      uniqueNames.push(name);
-    }
-    ownPendingTermNames.value = uniqueNames;
-  } catch {
-    ownPendingTermNames.value = [];
   }
 }
 
@@ -933,38 +1321,8 @@ function removeSelectedTrickTerm(termId) {
 function resetTrickFilters() {
   trickFilters.search = "";
   trickFilters.termId = "";
+  trickFilters.order = "likes_desc";
   loadTricks(1, false);
-}
-
-function addPendingTermDraft() {
-  const name = String(trickForm.pending_term_draft || "").trim();
-  if (!name) return;
-  const key = name.toLowerCase();
-  const selectedNames = new Set(
-    selectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
-  );
-  const pendingNames = new Set(
-    trickForm.pending_term_names.map((x) => String(x || "").toLowerCase()),
-  );
-
-  if (selectedNames.has(key) || pendingNames.has(key)) {
-    ui.info("该词条已存在于已选或待审列表中");
-    return;
-  }
-  if (name.length > 80) {
-    ui.info("词条名称过长，请控制在 80 字以内");
-    return;
-  }
-
-  trickForm.pending_term_names = [...trickForm.pending_term_names, name];
-  trickForm.pending_term_draft = "";
-}
-
-function removePendingTerm(index) {
-  if (index < 0 || index >= trickForm.pending_term_names.length) return;
-  trickForm.pending_term_names = trickForm.pending_term_names.filter(
-    (_, idx) => idx !== index,
-  );
 }
 
 function toggleEditTrickTerm(termId) {
@@ -983,97 +1341,6 @@ function removeEditSelectedTrickTerm(termId) {
   editForm.term_ids = editForm.term_ids.filter((id) => id !== value);
 }
 
-function addEditPendingTermDraft() {
-  const name = String(editForm.pending_term_draft || "").trim();
-  if (!name) return;
-  const key = name.toLowerCase();
-  const selectedNames = new Set(
-    editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
-  );
-  const pendingNames = new Set(
-    editForm.pending_term_names.map((x) => String(x || "").toLowerCase()),
-  );
-
-  if (selectedNames.has(key) || pendingNames.has(key)) {
-    ui.info("该词条已存在于已选或待审列表中");
-    return;
-  }
-  if (name.length > 80) {
-    ui.info("词条名称过长，请控制在 80 字以内");
-    return;
-  }
-
-  editForm.pending_term_names = [...editForm.pending_term_names, name];
-  editForm.pending_term_draft = "";
-}
-
-function addEditPendingTermFromMine(name) {
-  editForm.pending_term_draft = String(name || "").trim();
-  addEditPendingTermDraft();
-}
-
-function removeEditPendingTerm(index) {
-  if (index < 0 || index >= editForm.pending_term_names.length) return;
-  editForm.pending_term_names = editForm.pending_term_names.filter(
-    (_, idx) => idx !== index,
-  );
-}
-
-function resetEditTrickForm() {
-  editForm.title = "";
-  editForm.content_md = "";
-  editForm.term_ids = [];
-  editForm.pending_term_draft = "";
-  editForm.pending_term_names = [];
-  editTagEditorVisible.value = false;
-  editTrickTermSearch.value = "";
-  editEditorExpanded.value = false;
-}
-
-function collectPendingTermsForSubmit() {
-  const merged = [...trickForm.pending_term_names];
-  const draft = String(trickForm.pending_term_draft || "").trim();
-  if (!draft) return merged;
-
-  const existing = new Set(
-    merged.map((item) => String(item || "").toLowerCase()),
-  );
-  const selectedNames = new Set(
-    selectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
-  );
-  const draftKey = draft.toLowerCase();
-  if (
-    !existing.has(draftKey) &&
-    !selectedNames.has(draftKey) &&
-    draft.length <= 80
-  ) {
-    merged.push(draft);
-  }
-  return merged;
-}
-
-function collectPendingTermsForEdit() {
-  const merged = [...editForm.pending_term_names];
-  const draft = String(editForm.pending_term_draft || "").trim();
-  if (!draft) return merged;
-
-  const existing = new Set(
-    merged.map((item) => String(item || "").toLowerCase()),
-  );
-  const selectedNames = new Set(
-    editSelectedTrickTerms.value.map((x) => String(x.name || "").toLowerCase()),
-  );
-  const draftKey = draft.toLowerCase();
-  if (
-    !existing.has(draftKey) &&
-    !selectedNames.has(draftKey) &&
-    draft.length <= 80
-  ) {
-    merged.push(draft);
-  }
-  return merged;
-}
-
 async function loadMoreTricks() {
   if (!trickMeta.next || trickMeta.loadingMore) return;
   trickMeta.loadingMore = true;
@@ -1086,21 +1353,17 @@ async function loadMoreTricks() {
 
 function startEditTrick(item) {
   if (editingTrickId.value === item.id) {
-    editingTrickId.value = null;
-    resetEditTrickForm();
+    resetEditTrickState();
     return;
   }
   editingTrickId.value = item.id;
   editForm.title = item.title || "";
   editForm.content_md = item.content_md || "";
+  editForm.keywords_text = item.keywords_text || "";
   editForm.term_ids = Array.isArray(item.terms)
     ? item.terms
         .map((term) => Number(term.id))
         .filter((id) => Number.isFinite(id))
-    : [];
-  editForm.pending_term_draft = "";
-  editForm.pending_term_names = Array.isArray(item.pending_term_names)
-    ? item.pending_term_names
     : [];
   editTagEditorVisible.value = false;
   editTrickTermSearch.value = "";
@@ -1109,23 +1372,30 @@ function startEditTrick(item) {
 async function saveEditTrick(item) {
   if (!canEditTrick(item)) return;
   const content = editForm.content_md.trim();
+  const keywords = String(editForm.keywords_text || "").trim();
   if (!content) {
     ui.info("内容不能为空");
+    return;
+  }
+  if (!keywords) {
+    ui.info("请填写关键词");
+    return;
+  }
+  if (!editForm.term_ids.length) {
+    ui.info("请至少选择一个词条");
     return;
   }
   if (savingEdit.value) return;
 
   savingEdit.value = true;
   try {
-    const pendingTermNames = collectPendingTermsForEdit();
     await api.patch(`/tricks/${item.id}/`, {
       title: String(editForm.title || "").trim(),
       content_md: content,
+      keywords_text: keywords,
       term_ids: editForm.term_ids,
-      pending_term_names: pendingTermNames,
     });
-    editingTrickId.value = null;
-    resetEditTrickForm();
+    resetEditTrickState();
     ui.success(auth.isManager ? "已更新 trick" : "已提交修改，等待审核");
     await loadTricks(1, false);
   } catch (error) {
@@ -1142,8 +1412,10 @@ async function deleteTrick(item) {
     await api.delete(`/tricks/${item.id}/`);
     ui.success("已删除");
     if (editingTrickId.value === item.id) {
-      editingTrickId.value = null;
-      resetEditTrickForm();
+      resetEditTrickState();
+    }
+    if (selectedTrickId.value === item.id) {
+      closeTrickModal();
     }
     await loadTricks(1, false);
   } catch (error) {
@@ -1169,31 +1441,44 @@ async function submitTrick() {
   }
   if (submittingTrick.value) return;
 
+  const title = String(trickForm.title || "").trim();
   const content = trickForm.content_md.trim();
+  const keywords = String(trickForm.keywords_text || "").trim();
+  if (!title) {
+    ui.info("请填写标题");
+    return;
+  }
+  if (!keywords) {
+    ui.info("请填写关键词");
+    return;
+  }
   if (!content) {
     ui.info("请填写 Markdown 内容");
+    return;
+  }
+  if (!trickForm.term_ids.length) {
+    ui.info("请至少选择一个词条");
     return;
   }
 
   submittingTrick.value = true;
   try {
-    const pendingTermNames = collectPendingTermsForSubmit();
     const { data } = await api.post("/tricks/", {
-      title: String(trickForm.title || "").trim(),
+      title,
       content_md: content,
+      keywords_text: keywords,
       term_ids: trickForm.term_ids,
-      pending_term_names: pendingTermNames,
     });
     trickForm.title = "";
     trickForm.content_md = "";
+    trickForm.keywords_text = "";
     trickForm.term_ids = [];
-    trickForm.pending_term_draft = "";
-    trickForm.pending_term_names = [];
     if (data?.status === "pending") {
       ui.success("trick 提交成功，等待审核");
     } else {
       ui.success("trick 已发布");
     }
+    showTrickForm.value = false;
     await loadTricks(1, false);
     await loadTrickTerms();
   } catch (error) {
@@ -1204,39 +1489,53 @@ async function submitTrick() {
 }
 
 watch(
-  () => currentPageSlug.value,
+  () => [currentPageSlug.value, pageRequestSlug.value],
   async () => {
     showPageEditor.value = false;
     showTrickForm.value = false;
+    selectedTrickId.value = null;
+    resetEditTrickState();
     if (isTricksPanel.value) {
       await loadTrickTerms();
-      await loadOwnPendingTermNames();
-      if (!tricks.value.length) {
-        await loadTricks();
-      }
+      await loadTricks(1, false);
       return;
+    }
+    if (isDocsPanel.value) {
+      await loadDocumentNav();
     }
     await loadPage();
   },
   { immediate: true },
 );
 
-onMounted(async () => {
-  if (isTricksPanel.value && !tricks.value.length) {
-    await loadTrickTerms();
-    await loadOwnPendingTermNames();
-    await loadTricks();
-  }
+watch(selectedTrickId, (value) => {
+  if (typeof document === "undefined") return;
+  document.body.style.overflow = value ? "hidden" : "";
+});
 
+watch(selectedTrick, (item) => {
+  if (!item && selectedTrickId.value) {
+    selectedTrickId.value = null;
+  }
+});
+
+onMounted(async () => {
   const handleFocus = async () => {
     if (!isTricksPanel.value) return;
     await loadTrickTerms();
-    await loadOwnPendingTermNames();
+  };
+  const handleKeydown = (event) => {
+    if (event.key === "Escape" && selectedTrickId.value) {
+      closeTrickModal();
+    }
   };
 
   window.addEventListener("focus", handleFocus);
+  window.addEventListener("keydown", handleKeydown);
   onBeforeUnmount(() => {
     window.removeEventListener("focus", handleFocus);
+    window.removeEventListener("keydown", handleKeydown);
+    document.body.style.overflow = "";
   });
 });
 </script>
@@ -1244,6 +1543,67 @@ onMounted(async () => {
 <style scoped>
 .extra-layout {
   display: block;
+}
+
+.extra-docs-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.extra-doc-sidebar {
+  position: sticky;
+  top: 92px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 98%, white 2%);
+  box-shadow: var(--shadow-sm);
+}
+
+.extra-doc-sidebar-head {
+  display: grid;
+  gap: 2px;
+}
+
+.extra-doc-sidebar-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-quiet);
+}
+
+.extra-doc-link {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--hairline) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-strong) 92%, white 8%);
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-soft);
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.extra-doc-link:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text-strong);
+}
+
+.extra-doc-link--active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong));
 }
 
 .extra-main {
@@ -1298,6 +1658,486 @@ onMounted(async () => {
   border-radius: 10px;
 }
 
+.trick-space {
+  display: grid;
+  gap: 16px;
+}
+
+.trick-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.trick-hero--single-action {
+  justify-content: flex-end;
+}
+
+.trick-hero-copy {
+  min-width: 0;
+}
+
+.trick-hero-meta {
+  margin-top: 6px;
+  max-width: 760px;
+}
+
+.trick-hero-action {
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0b84ff, #0062cc);
+  color: #fff;
+  padding: 14px 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 12px 28px rgba(11, 132, 255, 0.2);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
+}
+
+.trick-hero-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 34px rgba(11, 132, 255, 0.24);
+  filter: saturate(1.05);
+}
+
+.trick-submit-panel {
+  margin-top: -2px;
+}
+
+.trick-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--hairline) 88%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--surface) 98%, white 2%);
+  box-shadow: var(--shadow-sm);
+}
+
+.trick-search-field {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+}
+
+.trick-search-icon {
+  flex: 0 0 auto;
+  color: var(--text-quiet);
+  font-size: 18px;
+}
+
+.trick-search-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  color: var(--text-strong);
+}
+
+.trick-search-input::placeholder {
+  color: var(--muted);
+}
+
+.trick-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.trick-term-filter {
+  min-width: 136px;
+}
+
+.trick-sort-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-strong) 88%, white 12%);
+  border: 1px solid color-mix(in srgb, var(--hairline) 86%, transparent);
+}
+
+.trick-sort-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.trick-sort-btn.is-active {
+  background: #fff;
+  color: var(--text-strong);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.trick-reset-btn {
+  border-radius: 14px;
+}
+
+.trick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 16px;
+}
+
+.trick-card {
+  min-height: 176px;
+  border: 1px solid color-mix(in srgb, var(--hairline) 88%, transparent);
+  border-radius: 24px;
+  padding: 18px 20px;
+  background:
+    radial-gradient(circle at top right, rgba(11, 132, 255, 0.08), transparent 30%),
+    color-mix(in srgb, var(--surface) 98%, white 2%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.trick-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--hairline));
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.09);
+}
+
+.trick-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.trick-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trick-card-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0b63d1;
+  background: rgba(11, 132, 255, 0.12);
+}
+
+.trick-term-tone--default {
+  color: #0b63d1;
+  background: rgba(11, 132, 255, 0.12);
+}
+
+.trick-term-tone--math {
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.trick-term-tone--dp {
+  color: #c2410c;
+  background: rgba(251, 146, 60, 0.16);
+}
+
+.trick-term-tone--string {
+  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.16);
+}
+
+.trick-term-tone--geometry {
+  color: #4338ca;
+  background: rgba(129, 140, 248, 0.18);
+}
+
+.trick-term-tone--ds {
+  color: #047857;
+  background: rgba(52, 211, 153, 0.16);
+}
+
+.trick-term-tone--graph {
+  color: #7c3aed;
+  background: rgba(196, 181, 253, 0.22);
+}
+
+.trick-term-tone--other {
+  color: #475569;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.trick-card-tag--muted {
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--surface-strong) 90%, white 10%);
+}
+
+.trick-card-title {
+  margin: 0;
+  font-size: clamp(18px, 1.8vw, 21px);
+  line-height: 1.28;
+  color: var(--text-strong);
+  letter-spacing: -0.02em;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trick-card-title :deep(p) {
+  margin: 0;
+}
+
+.trick-card-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+  align-content: flex-start;
+}
+
+.trick-keyword-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.trick-keyword-chip--muted {
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--surface-strong) 90%, white 10%);
+  border-color: color-mix(in srgb, var(--hairline) 82%, transparent);
+}
+
+.trick-card-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.trick-card-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trick-card-author span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trick-card-author-icon {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.trick-card-like {
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0;
+}
+
+.trick-card-like.is-liked {
+  color: #c03657;
+}
+
+.trick-card-like:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.trick-empty {
+  padding: 8px 4px 0;
+}
+
+.trick-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.trick-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 18, 32, 0.26);
+  backdrop-filter: blur(12px);
+}
+
+.trick-modal-card {
+  position: relative;
+  width: min(960px, 100%);
+  height: min(88vh, 920px);
+  max-height: min(88vh, 920px);
+  overflow: hidden;
+  border-radius: 32px;
+  background: color-mix(in srgb, var(--surface) 98%, white 2%);
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.24);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.trick-modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  background: color-mix(in srgb, var(--surface) 92%, white 8%);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 88%, transparent);
+}
+
+.trick-modal-head-copy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.trick-modal-close {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-strong) 88%, white 12%);
+  color: var(--text-soft);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.trick-modal-body {
+  padding: 24px 26px 18px;
+  display: grid;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.trick-modal-title {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 38px);
+  line-height: 1.18;
+  letter-spacing: -0.03em;
+  color: var(--text-strong);
+}
+
+.trick-modal-title :deep(p) {
+  margin: 0;
+}
+
+.trick-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.trick-modal-manage {
+  margin: -2px 0 2px;
+}
+
+.trick-detail-markdown {
+  min-width: 0;
+}
+
+.trick-detail-markdown :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+}
+
+.trick-modal-editor {
+  gap: 10px;
+}
+
+.trick-modal-foot {
+  display: flex;
+  justify-content: center;
+  padding: 16px 22px 22px;
+  border-top: 1px solid color-mix(in srgb, var(--hairline) 82%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface) 92%, white 8%),
+    color-mix(in srgb, var(--surface) 98%, white 2%)
+  );
+  box-shadow: 0 -14px 30px rgba(15, 23, 42, 0.06);
+}
+
+.trick-like-pill {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: color-mix(in srgb, var(--surface-strong) 88%, white 12%);
+  color: var(--text-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.trick-like-pill.is-liked {
+  background: rgba(192, 54, 87, 0.12);
+  color: #b62c4f;
+}
+
+.trick-like-pill:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 .trick-submit {
   padding: 14px;
   display: grid;
@@ -1339,6 +2179,17 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-soft);
   background: color-mix(in srgb, var(--surface-strong) 90%, white 10%);
+}
+
+.trick-field-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.trick-field-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
 }
 
 .trick-collapse-btn {
@@ -1626,6 +2477,23 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.trick-edit-review-note {
+  margin: 0;
+}
+
+.trick-form-reveal-enter-active,
+.trick-form-reveal-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+.trick-form-reveal-enter-from,
+.trick-form-reveal-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 .trick-markdown {
   max-width: 100%;
 }
@@ -1645,6 +2513,14 @@ onMounted(async () => {
     padding: 14px;
   }
 
+  .extra-docs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .extra-doc-sidebar {
+    position: static;
+  }
+
   .extra-head {
     flex-direction: column;
   }
@@ -1656,6 +2532,35 @@ onMounted(async () => {
 
   .page-editor-grid {
     grid-template-columns: 1fr;
+  }
+
+  .trick-hero,
+  .trick-toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .trick-hero {
+    gap: 12px;
+  }
+
+  .trick-hero-action,
+  .trick-toolbar-actions,
+  .trick-toolbar-actions > * {
+    width: 100%;
+  }
+
+  .trick-toolbar-actions {
+    justify-content: stretch;
+  }
+
+  .trick-sort-switch {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .trick-sort-btn {
+    flex: 1 1 0;
   }
 
   .trick-editor-grid {
@@ -1673,6 +2578,28 @@ onMounted(async () => {
 
   .trick-filters {
     grid-template-columns: 1fr;
+  }
+
+  .trick-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trick-modal {
+    padding: 12px;
+  }
+
+  .trick-modal-card {
+    width: 100%;
+    height: 92vh;
+    max-height: 92vh;
+    border-radius: 24px;
+  }
+
+  .trick-modal-head,
+  .trick-modal-body,
+  .trick-modal-foot {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 }
 

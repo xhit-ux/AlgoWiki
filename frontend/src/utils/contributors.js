@@ -27,6 +27,52 @@ function compareTime(a, b) {
   return 0;
 }
 
+function mergeContributorRecord(
+  contributorMap,
+  {
+    user,
+    is_creator = false,
+    approved_revision_count = 0,
+    created_entry_count = 0,
+    first_contributed_at = null,
+    last_contributed_at = null,
+  },
+) {
+  const normalizedUser = normalizeUser(user);
+  if (!normalizedUser) return;
+
+  const normalizedApprovedRevisionCount = Math.max(
+    0,
+    Number(approved_revision_count || 0),
+  );
+  const normalizedCreatedEntryCount = Math.max(0, Number(created_entry_count || 0));
+  const firstContributedAt = first_contributed_at || last_contributed_at || null;
+  const lastContributedAt = last_contributed_at || first_contributed_at || null;
+
+  const existing = contributorMap.get(normalizedUser.id);
+  if (existing) {
+    existing.is_creator = existing.is_creator || !!is_creator;
+    existing.created_entry_count += normalizedCreatedEntryCount;
+    existing.approved_revision_count += normalizedApprovedRevisionCount;
+    if (compareTime(firstContributedAt, existing.first_contributed_at) < 0) {
+      existing.first_contributed_at = firstContributedAt;
+    }
+    if (compareTime(lastContributedAt, existing.last_contributed_at) > 0) {
+      existing.last_contributed_at = lastContributedAt;
+    }
+    return;
+  }
+
+  contributorMap.set(normalizedUser.id, {
+    user: normalizedUser,
+    is_creator: !!is_creator,
+    approved_revision_count: normalizedApprovedRevisionCount,
+    created_entry_count: normalizedCreatedEntryCount,
+    first_contributed_at: firstContributedAt,
+    last_contributed_at: lastContributedAt,
+  });
+}
+
 export function aggregateCreatorContributors(
   items,
   { userKey = "created_by", getUser = null, getTime = null } = {},
@@ -35,30 +81,34 @@ export function aggregateCreatorContributors(
   const contributorMap = new Map();
 
   for (const item of source) {
+    const embeddedContributors = Array.isArray(item?.contributors)
+      ? item.contributors
+      : [];
+    if (embeddedContributors.length) {
+      for (const contributor of embeddedContributors) {
+        mergeContributorRecord(contributorMap, {
+          user: contributor?.user,
+          is_creator: contributor?.is_creator,
+          approved_revision_count: contributor?.approved_revision_count,
+          created_entry_count: contributor?.is_creator ? 1 : 0,
+          first_contributed_at:
+            contributor?.first_contributed_at || contributor?.last_contributed_at,
+          last_contributed_at:
+            contributor?.last_contributed_at || contributor?.first_contributed_at,
+        });
+      }
+      continue;
+    }
+
     const rawUser =
       typeof getUser === "function" ? getUser(item) : item?.[userKey];
-    const user = normalizeUser(rawUser);
-    if (!user) continue;
-
     const contributedAt =
       typeof getTime === "function"
         ? getTime(item)
         : item?.created_at || item?.published_at || item?.updated_at || null;
 
-    const existing = contributorMap.get(user.id);
-    if (existing) {
-      existing.created_entry_count += 1;
-      if (compareTime(contributedAt, existing.first_contributed_at) < 0) {
-        existing.first_contributed_at = contributedAt;
-      }
-      if (compareTime(contributedAt, existing.last_contributed_at) > 0) {
-        existing.last_contributed_at = contributedAt;
-      }
-      continue;
-    }
-
-    contributorMap.set(user.id, {
-      user,
+    mergeContributorRecord(contributorMap, {
+      user: rawUser,
       is_creator: true,
       approved_revision_count: 0,
       created_entry_count: 1,

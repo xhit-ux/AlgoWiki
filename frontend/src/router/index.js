@@ -32,6 +32,11 @@ const manageSections = [
     name: "manage-competition-zone",
     section: "competition-zone",
   },
+  {
+    path: "document-pages",
+    name: "manage-document-pages",
+    section: "document-pages",
+  },
   { path: "assistant", name: "manage-assistant", section: "assistant" },
   { path: "events", name: "manage-events", section: "events" },
   { path: "security", name: "manage-security", section: "security" },
@@ -52,7 +57,7 @@ const reviewSections = [
   },
   { path: "/review/questions", name: "review-questions", section: "questions" },
   { path: "/review/answers", name: "review-answers", section: "answers" },
-];
+].filter((item) => item.section !== "trick_terms");
 
 const routes = [
   { path: "/", name: "home", component: HomePage },
@@ -122,6 +127,11 @@ const routes = [
     props: { section: item.section },
     meta: { requiresManager: true },
   })),
+  {
+    path: "/review/trick-terms",
+    redirect: { name: "review-tricks" },
+    meta: { requiresManager: true },
+  },
   {
     path: "/review/submissions",
     redirect: { name: "review-tickets" },

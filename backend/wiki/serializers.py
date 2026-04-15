@@ -33,6 +33,7 @@ from .models import (
     CompetitionScheduleEntry,
     CompetitionZoneSection,
     ContributionEvent,
+    DocumentPageSection,
     EmailVerificationTicket,
     ExtensionPage,
     FriendlyLink,
@@ -43,11 +44,13 @@ from .models import (
     SecurityAuditLog,
     TeamMember,
     TrickEntry,
+    TrickEntryLike,
     TrickTerm,
     TrickTermSuggestion,
     UserNotification,
     User,
 )
+from .trick_terms import FIXED_TRICK_TERM_SLUGS
 from .email_auth import (
     build_email_ticket_token,
     create_email_verification_ticket,
@@ -288,6 +291,7 @@ class UserProfileSettingsSerializer(serializers.ModelSerializer):
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(required=False, max_length=150)
     school_name = serializers.CharField(
         required=False, allow_blank=True, max_length=120
     )
@@ -297,10 +301,26 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
+            "username",
             "school_name",
             "bio",
             "avatar_url",
         ]
+
+    def validate_username(self, value):
+        username = str(value or "").strip()
+        if not username:
+            raise serializers.ValidationError("Username cannot be empty.")
+        try:
+            User._meta.get_field("username").run_validators(username)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
+        queryset = User.objects.filter(username__iexact=username)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError("This username is already in use.")
+        return username
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -1404,10 +1424,17 @@ class TrickEntrySerializer(serializers.ModelSerializer):
     author = UserPublicSerializer(read_only=True)
     reviewer = UserPublicSerializer(read_only=True)
     terms = serializers.SerializerMethodField(read_only=True)
+    keywords = serializers.SerializerMethodField(read_only=True)
     contributors = serializers.SerializerMethodField()
+    like_count = serializers.SerializerMethodField()
+    is_liked = serializers.SerializerMethodField()
     term_ids = serializers.PrimaryKeyRelatedField(
         source="terms",
-        queryset=TrickTerm.objects.filter(is_active=True),
+        queryset=TrickTerm.objects.filter(
+            is_active=True,
+            is_builtin=True,
+            slug__in=FIXED_TRICK_TERM_SLUGS,
+        ),
         many=True,
         required=False,
         write_only=True,
@@ -1424,10 +1451,14 @@ class TrickEntrySerializer(serializers.ModelSerializer):
             "id",
             "title",
             "content_md",
+            "keywords_text",
+            "keywords",
             "author",
             "terms",
             "term_ids",
             "pending_term_names",
+            "like_count",
+            "is_liked",
             "status",
             "reviewer",
             "review_note",
@@ -1438,6 +1469,9 @@ class TrickEntrySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "author",
+            "keywords",
+            "like_count",
+            "is_liked",
             "status",
             "reviewer",
             "review_note",
@@ -1446,8 +1480,26 @@ class TrickEntrySerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         extra_kwargs = {
-            "title": {"required": False, "allow_blank": True},
+            "title": {"required": True, "allow_blank": False},
+            "keywords_text": {"required": True, "allow_blank": False},
         }
+
+    def _split_keywords(self, value):
+        return [item for item in str(value or "").split() if item]
+
+    def _normalize_keywords_text(self, value):
+        ordered = []
+        seen = set()
+        for raw_item in self._split_keywords(value):
+            item = raw_item.strip()
+            if not item:
+                continue
+            normalized = item.casefold()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered.append(item[:32])
+        return " ".join(ordered[:12])
 
     def get_terms(self, obj):
         ordered_terms = sorted(obj.terms.all(), key=lambda term: str(term.name or ""))
@@ -1459,6 +1511,25 @@ class TrickEntrySerializer(serializers.ModelSerializer):
             }
             for term in ordered_terms
         ]
+
+    def get_keywords(self, obj):
+        return self._split_keywords(getattr(obj, "keywords_text", ""))
+
+    def get_like_count(self, obj):
+        annotated = getattr(obj, "like_count", None)
+        if annotated is not None:
+            return int(annotated)
+        return obj.like_records.count()
+
+    def get_is_liked(self, obj):
+        annotated = getattr(obj, "is_liked", None)
+        if annotated is not None:
+            return bool(annotated)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        return TrickEntryLike.objects.filter(user=user, trick_entry=obj).exists()
 
     def get_contributors(self, obj):
         contributor_map = {}
@@ -1480,79 +1551,47 @@ class TrickEntrySerializer(serializers.ModelSerializer):
 
         return _finalize_contributors(contributor_map, context=self.context)
 
-    def _normalize_term_name(self, value):
-        return " ".join(str(value or "").strip().split())
-
     def validate_pending_term_names(self, value):
-        cleaned = []
-        seen = set()
-        for item in value or []:
-            display = self._normalize_term_name(item)
-            if not display:
-                continue
-            if len(display) > 80:
-                raise serializers.ValidationError("自定义词条名称过长。")
-            normalized = display.lower()
-            if not re.search(r"[A-Za-z0-9\u4e00-\u9fff]", normalized):
-                raise serializers.ValidationError(
-                    "自定义词条名称无效，请输入有意义的名称。"
-                )
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            cleaned.append(display)
-        return cleaned
+        cleaned = [
+            " ".join(str(item or "").strip().split()) for item in (value or [])
+        ]
+        cleaned = [item for item in cleaned if item]
+        if cleaned:
+            raise serializers.ValidationError("trick 词条已固定，请直接选择现有分类。")
+        return []
 
-    def _bind_pending_terms(self, entry, pending_term_names, proposer):
-        if not pending_term_names:
-            return
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        terms = attrs.get("terms", serializers.empty)
+        current_terms = list(self.instance.terms.all()) if self.instance else []
 
-        for raw_name in pending_term_names:
-            display_name = self._normalize_term_name(raw_name)
-            if not display_name:
-                continue
+        if terms is serializers.empty:
+            terms = current_terms
 
-            normalized_name = display_name.lower()
+        if not terms:
+            raise serializers.ValidationError({"term_ids": "请至少选择一个词条。"})
 
-            direct_term = TrickTerm.objects.filter(
-                name__iexact=display_name, is_active=True
-            ).first()
-            if direct_term:
-                entry.terms.add(direct_term)
-                continue
+        return attrs
 
-            suggestion = (
-                TrickTermSuggestion.objects.filter(
-                    normalized_name=normalized_name,
-                    status=TrickTermSuggestion.Status.PENDING,
-                )
-                .order_by("-created_at")
-                .first()
-            )
-            if not suggestion:
-                suggestion = TrickTermSuggestion.objects.create(
-                    name=display_name,
-                    normalized_name=normalized_name,
-                    proposer=proposer,
-                    status=TrickTermSuggestion.Status.PENDING,
-                )
-            entry.pending_term_suggestions.add(suggestion)
+    def validate_keywords_text(self, value):
+        normalized = self._normalize_keywords_text(value)
+        if not normalized:
+            raise serializers.ValidationError("请至少填写 1 个关键词。")
+        return normalized
+
+    def validate_title(self, value):
+        title = str(value or "").strip()
+        if not title:
+            raise serializers.ValidationError("标题不能为空。")
+        return title
 
     def create(self, validated_data):
-        pending_term_names = validated_data.pop("pending_term_names", [])
-        entry = super().create(validated_data)
-        request = self.context.get("request")
-        proposer = getattr(request, "user", None) or entry.author
-        self._bind_pending_terms(entry, pending_term_names, proposer)
-        return entry
+        validated_data.pop("pending_term_names", None)
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        pending_term_names = validated_data.pop("pending_term_names", [])
-        entry = super().update(instance, validated_data)
-        request = self.context.get("request")
-        proposer = getattr(request, "user", None) or entry.author
-        self._bind_pending_terms(entry, pending_term_names, proposer)
-        return entry
+        validated_data.pop("pending_term_names", None)
+        return super().update(instance, validated_data)
 
 
 class TrickTermSerializer(serializers.ModelSerializer):
@@ -1690,6 +1729,40 @@ class CompetitionZoneSectionSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"page": "Selected page is disabled."}
                 )
+        return attrs
+
+
+class DocumentPageSectionSerializer(serializers.ModelSerializer):
+    page_slug = serializers.CharField(source="page.slug", read_only=True)
+    page_title = serializers.CharField(source="page.title", read_only=True)
+
+    class Meta:
+        model = DocumentPageSection
+        fields = [
+            "id",
+            "title",
+            "key",
+            "page",
+            "page_slug",
+            "page_title",
+            "display_order",
+            "is_visible",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at", "page_slug", "page_title"]
+        extra_kwargs = {
+            "page": {"required": False, "allow_null": True},
+            "display_order": {"required": False},
+        }
+
+    def validate(self, attrs):
+        instance = getattr(self, "instance", None)
+        page = attrs.get("page", getattr(instance, "page", None))
+        if page is None:
+            raise serializers.ValidationError({"page": "A page target is required."})
+        if not page.is_enabled:
+            raise serializers.ValidationError({"page": "Selected page is disabled."})
         return attrs
 
 

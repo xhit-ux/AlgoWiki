@@ -15,7 +15,20 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.core.files.storage import FileSystemStorage
 from django.db import DatabaseError, connection, transaction
-from django.db.models import Count, Max, Prefetch, PROTECT, Q, Sum
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    IntegerField,
+    Max,
+    OuterRef,
+    Prefetch,
+    PROTECT,
+    Q,
+    Sum,
+    Value,
+    When,
+)
 from django.db.models.functions import TruncDate
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
@@ -42,6 +55,7 @@ from .models import (
     CompetitionScheduleEntry,
     CompetitionZoneSection,
     ContributionEvent,
+    DocumentPageSection,
     ExtensionPage,
     FriendlyLink,
     HeaderNavigationItem,
@@ -51,6 +65,7 @@ from .models import (
     SecurityAuditLog,
     TeamMember,
     TrickEntry,
+    TrickEntryLike,
     TrickTerm,
     TrickTermSuggestion,
     UserNotification,
@@ -63,6 +78,7 @@ from .permissions import (
     can_moderate_category,
 )
 from .security import record_password_history, record_security_event
+from .trick_terms import FIXED_TRICK_TERM_DEFINITIONS, FIXED_TRICK_TERM_SLUGS
 from .throttles import (
     AssistantAnonRateThrottle,
     AssistantUserRateThrottle,
@@ -95,6 +111,7 @@ from .serializers import (
     CompetitionScheduleEntrySerializer,
     CompetitionZoneSectionSerializer,
     ContributionEventSerializer,
+    DocumentPageSectionSerializer,
     PasswordChangeCodeSerializer,
     EmailChangeCodeSerializer,
     EmailChangeSerializer,
@@ -156,6 +173,17 @@ def is_manager(user) -> bool:
         user
         and user.is_authenticated
         and user.role in {User.Role.ADMIN, User.Role.SUPERADMIN}
+    )
+
+
+def build_fixed_trick_term_order_expression():
+    return Case(
+        *[
+            When(slug=item["slug"], then=Value(index))
+            for index, item in enumerate(FIXED_TRICK_TERM_DEFINITIONS)
+        ],
+        default=Value(len(FIXED_TRICK_TERM_DEFINITIONS)),
+        output_field=IntegerField(),
     )
 
 
@@ -236,6 +264,24 @@ def create_notification(
         target_type=target_type[:80],
         target_id=target_id,
     )
+
+
+def normalize_review_note(raw_note) -> str:
+    return str(raw_note or "").strip()
+
+
+def build_review_notification_content(
+    *,
+    action: str,
+    review_note: str,
+    approved_fallback: str,
+    rejected_fallback: str,
+) -> str:
+    note = normalize_review_note(review_note)
+    if note:
+        prefix = "驳回批注" if action == "reject" else "审核备注"
+        return f"{prefix}：{note[:180]}"
+    return rejected_fallback if action == "reject" else approved_fallback
 
 
 def bulk_notify_users(
@@ -2628,7 +2674,7 @@ class ArticleCommentViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets
         if is_manager(user):
             if status_filter in dict(ArticleComment.Status.choices):
                 queryset = queryset.filter(status=status_filter)
-            else:
+            elif self.action != "append_review_note":
                 queryset = queryset.exclude(status=ArticleComment.Status.HIDDEN)
         elif user and user.is_authenticated and user.role == User.Role.SCHOOL:
             review_scope = Q(
@@ -2775,19 +2821,13 @@ class ArticleCommentViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets
                 status=status.HTTP_403_FORBIDDEN,
             )
         comment.status = ArticleComment.Status.HIDDEN
-        now = timezone.now()
-        comment.reviewer = reviewer
-        comment.review_note = review_note
-        comment.reviewed_at = now
-        comment.save(
-            update_fields=[
-                "status",
-                "reviewer",
-                "review_note",
-                "reviewed_at",
-                "updated_at",
-            ]
-        )
+        update_fields = ["status", "updated_at"]
+        if manager:
+            comment.reviewer = request.user
+            comment.review_note = ""
+            comment.reviewed_at = timezone.now()
+            update_fields.extend(["reviewer", "review_note", "reviewed_at"])
+        comment.save(update_fields=update_fields)
         if manager:
             log_event(
                 request.user,
@@ -2817,6 +2857,7 @@ class ArticleCommentViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets
         if comment.status != ArticleComment.Status.PENDING:
             return False, status.HTTP_400_BAD_REQUEST, "Comment is not pending review."
 
+        review_note = normalize_review_note(review_note)
         if action == "approve":
             comment.status = ArticleComment.Status.VISIBLE
             action_name = "approve_comment"
@@ -2826,7 +2867,18 @@ class ArticleCommentViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets
         else:
             return False, status.HTTP_400_BAD_REQUEST, "Invalid review action."
 
-        comment.save(update_fields=["status", "updated_at"])
+        comment.reviewer = reviewer
+        comment.review_note = review_note
+        comment.reviewed_at = timezone.now()
+        comment.save(
+            update_fields=[
+                "status",
+                "reviewer",
+                "review_note",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
         log_event(
             reviewer,
             ContributionEvent.EventType.ADMIN,
@@ -2838,18 +2890,25 @@ class ArticleCommentViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets
             },
         )
 
-        create_notification(
-            user=comment.author,
-            actor=reviewer,
-            target=comment,
-            title="评论审核结果通知",
-            content=(
-                f"你的评论已通过审核：{comment.article.title}"
-                if action == "approve"
-                else f"你的评论未通过审核：{comment.article.title}"
-            ),
-            link=f"/wiki/{comment.article_id}",
-        )
+        if comment.author_id != reviewer.id:
+            create_notification(
+                user=comment.author,
+                actor=reviewer,
+                target=comment,
+                title="评论审核结果通知",
+                content=build_review_notification_content(
+                    action=action,
+                    review_note=review_note,
+                    approved_fallback=f"你的评论已通过审核：{comment.article.title}",
+                    rejected_fallback="请根据管理员批注修改后重新提交。",
+                ),
+                link=f"/wiki/{comment.article_id}",
+                level=(
+                    UserNotification.Level.WARNING
+                    if action == "reject"
+                    else UserNotification.Level.INFO
+                ),
+            )
         if action == "approve" and comment.article.author_id != comment.author_id:
             create_notification(
                 user=comment.article.author,
@@ -3869,9 +3928,7 @@ class IssueTicketViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mo
 
         resolution_note_given = resolution_note is not UNSET
         if resolution_note_given:
-            ticket.resolution_note = (
-                "" if resolution_note is None else str(resolution_note)
-            )
+            ticket.resolution_note = normalize_review_note(resolution_note)
             ticket.review_note = ticket.resolution_note
 
         if new_status != IssueTicket.Status.PENDING:
@@ -3901,8 +3958,18 @@ class IssueTicketViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mo
                 actor=operator,
                 target=ticket,
                 title=f"工单状态已更新：{ticket.title}",
-                content=f"当前状态：{ticket.status}",
+                content=build_review_notification_content(
+                    action="reject" if ticket.status == IssueTicket.Status.REJECTED else "approve",
+                    review_note=ticket.resolution_note,
+                    approved_fallback=f"当前状态：{ticket.get_status_display()}",
+                    rejected_fallback="你的工单已被驳回，请查看处理批注。",
+                ),
                 link="/profile",
+                level=(
+                    UserNotification.Level.WARNING
+                    if ticket.status == IssueTicket.Status.REJECTED
+                    else UserNotification.Level.INFO
+                ),
             )
 
         if assign_to_given and ticket.assignee_id and ticket.assignee_id != operator.id:
@@ -4116,16 +4183,26 @@ class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mod
             return [AllowAny()]
         if self.action == "create":
             return [AuthenticatedAndNotBanned()]
-        if self.action in {"update", "partial_update", "destroy"}:
+        if self.action in {"update", "partial_update", "destroy", "like", "unlike"}:
             return [AuthenticatedAndNotBanned()]
         return [AdminOrSuperAdmin()]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().annotate(
+            like_count=Count("like_records", distinct=True)
+        )
         user = self.request.user
+        if user and user.is_authenticated:
+            queryset = queryset.annotate(
+                is_liked=Exists(
+                    TrickEntryLike.objects.filter(
+                        user=user, trick_entry_id=OuterRef("pk")
+                    )
+                )
+            )
         include_all = self.request.query_params.get("include_all") == "1"
         if is_manager(user):
-            if not include_all:
+            if not include_all and self.action != "append_review_note":
                 queryset = queryset.exclude(status=TrickEntry.Status.REJECTED)
         elif user and user.is_authenticated:
             queryset = queryset.filter(
@@ -4153,10 +4230,13 @@ class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mod
 
         search = self.request.query_params.get("search")
         if search:
-            keyword = search.strip()
-            queryset = queryset.filter(
-                Q(title__icontains=keyword) | Q(content_md__icontains=keyword)
-            )
+            tokens = [item for item in search.strip().split() if item]
+            for token in tokens:
+                queryset = queryset.filter(
+                    Q(title__icontains=token)
+                    | Q(content_md__icontains=token)
+                    | Q(keywords_text__icontains=token)
+                )
 
         term_id = self.request.query_params.get("term")
         if term_id and term_id.isdigit():
@@ -4168,22 +4248,12 @@ class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mod
 
         order = self.request.query_params.get("order")
         if order == "created_oldest":
-            return queryset.order_by("created_at")
+            return queryset.order_by("created_at", "id").distinct()
         if order == "created_newest":
-            return queryset.order_by("-created_at")
-        return queryset.order_by("-updated_at").distinct()
-
-    def _normalize_title(self, title_value="", content_value="", fallback=""):
-        raw_title = str(title_value or "").strip()
-        if raw_title:
-            return raw_title[:220]
-        content = str(content_value or "").strip()
-        if not content:
-            return str(fallback or "").strip()[:220]
-        first_line = content.splitlines()[0].strip()
-        if not first_line:
-            first_line = content[:40].strip()
-        return first_line[:220] or "trick"
+            return queryset.order_by("-created_at", "-id").distinct()
+        if order == "likes_desc":
+            return queryset.order_by("-like_count", "-created_at", "-id").distinct()
+        return queryset.order_by("-like_count", "-created_at", "-id").distinct()
 
     def list(self, request, *args, **kwargs):
         try:
@@ -4199,12 +4269,7 @@ class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mod
 
     def create(self, request, *args, **kwargs):
         try:
-            payload = request.data.copy()
-            payload["title"] = self._normalize_title(
-                title_value=payload.get("title", ""),
-                content_value=payload.get("content_md", ""),
-            )
-            serializer = self.get_serializer(data=payload)
+            serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             is_direct_publish = is_manager(request.user)
             next_status = (
@@ -4252,17 +4317,9 @@ class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mod
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-            payload = request.data.copy()
-            if "title" in payload:
-                payload["title"] = self._normalize_title(
-                    title_value=payload.get("title", ""),
-                    content_value=payload.get("content_md", entry.content_md),
-                    fallback=entry.title,
-                )
-            else:
-                payload["title"] = entry.title
-
-            serializer = self.get_serializer(entry, data=payload, partial=partial)
+            serializer = self.get_serializer(
+                entry, data=request.data, partial=partial
+            )
             serializer.is_valid(raise_exception=True)
 
             # Author edits require re-review; manager edits can directly approve.
@@ -4329,13 +4386,48 @@ class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mod
     @action(
         detail=True,
         methods=["post"],
+        permission_classes=[AuthenticatedAndNotBanned],
+        url_path="like",
+    )
+    def like(self, request, pk=None):
+        entry = self.get_object()
+        like, created = TrickEntryLike.objects.get_or_create(
+            user=request.user, trick_entry=entry
+        )
+        if created:
+            log_event(
+                request.user,
+                ContributionEvent.EventType.STAR,
+                entry,
+                {"action": "like_trick_entry", "like_id": like.id},
+            )
+        entry.like_count = TrickEntryLike.objects.filter(trick_entry=entry).count()
+        entry.is_liked = True
+        return Response(self.get_serializer(entry).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[AuthenticatedAndNotBanned],
+        url_path="unlike",
+    )
+    def unlike(self, request, pk=None):
+        entry = self.get_object()
+        TrickEntryLike.objects.filter(user=request.user, trick_entry=entry).delete()
+        entry.like_count = TrickEntryLike.objects.filter(trick_entry=entry).count()
+        entry.is_liked = False
+        return Response(self.get_serializer(entry).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
         permission_classes=[AdminOrSuperAdmin],
         url_path="set-status",
     )
     def set_status(self, request, pk=None):
         entry = self.get_object()
         next_status = request.data.get("status", "").strip()
-        review_note = str(request.data.get("review_note", "") or "").strip()
+        review_note = normalize_review_note(request.data.get("review_note", ""))
         if next_status not in dict(TrickEntry.Status.choices):
             return Response(
                 {"detail": "Invalid status."}, status=status.HTTP_400_BAD_REQUEST
@@ -4364,31 +4456,44 @@ class TrickEntryViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Mod
                 "review_note": review_note[:500],
             },
         )
+        if entry.author_id != request.user.id:
+            is_rejected = next_status == TrickEntry.Status.REJECTED
+            create_notification(
+                user=entry.author,
+                actor=request.user,
+                target=entry,
+                title=f"trick 已{'驳回' if is_rejected else '通过'}：{entry.title}",
+                content=build_review_notification_content(
+                    action="reject" if is_rejected else "approve",
+                    review_note=review_note,
+                    approved_fallback="你的 trick 已审核通过。",
+                    rejected_fallback="你的 trick 未通过审核，请根据批注修改后重新提交。",
+                ),
+                link="/competition?tab=trick",
+                level=(
+                    UserNotification.Level.WARNING
+                    if is_rejected
+                    else UserNotification.Level.INFO
+                ),
+            )
         return Response(self.get_serializer(entry).data)
 
 
-class TrickTermViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
+class TrickTermViewSet(ActionThrottleMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = TrickTermSerializer
     queryset = TrickTerm.objects.all().annotate(
         usage_count=Count("trick_entries", distinct=True)
     )
-    throttle_action_classes = {
-        "create": [ContentCreateRateThrottle],
-        "update": [ContentUpdateRateThrottle],
-        "partial_update": [ContentUpdateRateThrottle],
-        "destroy": [ContentDeleteRateThrottle],
-    }
 
     def get_permissions(self):
-        if self.action in {"list", "retrieve"}:
-            return [AllowAny()]
-        return [AdminOrSuperAdmin()]
+        return [AllowAny()]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        user = self.request.user
-        if not is_manager(user):
-            queryset = queryset.filter(is_active=True)
+        queryset = super().get_queryset().filter(
+            is_active=True,
+            is_builtin=True,
+            slug__in=FIXED_TRICK_TERM_SLUGS,
+        )
 
         search = self.request.query_params.get("search")
         if search:
@@ -4396,26 +4501,20 @@ class TrickTermViewSet(ActionThrottleMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Q(name__icontains=keyword) | Q(description__icontains=keyword)
             )
-        return queryset.order_by("name")
+        return queryset.order_by(build_fixed_trick_term_order_expression(), "name")
 
 
-class TrickTermSuggestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
+class TrickTermSuggestionViewSet(
+    ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ReadOnlyModelViewSet
+):
     serializer_class = TrickTermSuggestionSerializer
     queryset = (
         TrickTermSuggestion.objects.select_related("proposer", "reviewer")
         .prefetch_related("pending_trick_entries")
         .all()
     )
-    throttle_action_classes = {
-        "create": [ContentCreateRateThrottle],
-        "set_status": [ContentUpdateRateThrottle],
-    }
 
     def get_permissions(self):
-        if self.action in {"list", "retrieve"}:
-            return [AuthenticatedAndNotBanned()]
-        if self.action == "create":
-            return [AuthenticatedAndNotBanned()]
         return [AdminOrSuperAdmin()]
 
     def get_queryset(self):
@@ -4425,93 +4524,10 @@ class TrickTermSuggestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, vie
         if not user or not user.is_authenticated:
             return queryset.none()
 
-        if is_manager(user):
-            status_filter = self.request.query_params.get("status")
-            if status_filter in dict(TrickTermSuggestion.Status.choices):
-                queryset = queryset.filter(status=status_filter)
-            return queryset.order_by("-created_at")
-
-        queryset = queryset.filter(
-            Q(proposer=user) | Q(status=TrickTermSuggestion.Status.APPROVED)
-        )
         status_filter = self.request.query_params.get("status")
-        if status_filter == TrickTermSuggestion.Status.PENDING:
-            queryset = queryset.filter(
-                proposer=user, status=TrickTermSuggestion.Status.PENDING
-            )
-        elif status_filter in {
-            TrickTermSuggestion.Status.APPROVED,
-            TrickTermSuggestion.Status.REJECTED,
-        }:
+        if status_filter in dict(TrickTermSuggestion.Status.choices):
             queryset = queryset.filter(status=status_filter)
         return queryset.order_by("-created_at")
-
-    def create(self, request, *args, **kwargs):
-        payload = request.data.copy()
-        serializer = self.get_serializer(data=payload)
-        serializer.is_valid(raise_exception=True)
-        suggestion = serializer.save(proposer=request.user)
-        log_event(
-            request.user,
-            ContributionEvent.EventType.ISSUE,
-            suggestion,
-            {"action": "create_trick_term_suggestion", "name": suggestion.name},
-        )
-        return Response(
-            self.get_serializer(suggestion).data, status=status.HTTP_201_CREATED
-        )
-
-    @action(
-        detail=True,
-        methods=["post"],
-        permission_classes=[AdminOrSuperAdmin],
-        url_path="set-status",
-    )
-    def set_status(self, request, pk=None):
-        suggestion = self.get_object()
-        next_status = str(request.data.get("status", "")).strip()
-        review_note = str(request.data.get("review_note", "") or "").strip()
-        if next_status not in dict(TrickTermSuggestion.Status.choices):
-            return Response(
-                {"detail": "Invalid status."}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        with transaction.atomic():
-            suggestion.status = next_status
-            suggestion.reviewer = request.user
-            suggestion.review_note = review_note
-            suggestion.reviewed_at = timezone.now()
-            suggestion.save(
-                update_fields=[
-                    "status",
-                    "reviewer",
-                    "review_note",
-                    "reviewed_at",
-                    "updated_at",
-                ]
-            )
-
-            if next_status == TrickTermSuggestion.Status.APPROVED:
-                term, _ = TrickTerm.objects.get_or_create(
-                    name=suggestion.name,
-                    defaults={"is_active": True, "is_builtin": False},
-                )
-                if not term.is_active:
-                    term.is_active = True
-                    term.save(update_fields=["is_active", "updated_at"])
-
-                linked_entries = list(suggestion.pending_trick_entries.all())
-                for entry in linked_entries:
-                    entry.terms.add(term)
-                suggestion.pending_trick_entries.clear()
-
-        log_event(
-            request.user,
-            ContributionEvent.EventType.ADMIN,
-            suggestion,
-            {"action": "moderate_trick_term_suggestion", "status": next_status},
-        )
-        return Response(self.get_serializer(suggestion).data)
 
 
 class QuestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelViewSet):
@@ -4677,7 +4693,7 @@ class QuestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Model
     def _apply_question_moderation(self, question, operator, action, review_note=""):
         action = (action or "").strip().lower()
         manager = is_manager(operator)
-        review_note = "" if review_note is None else str(review_note)
+        review_note = normalize_review_note(review_note)
 
         if action == "close":
             if question.status not in {Question.Status.OPEN, Question.Status.CLOSED}:
@@ -4779,7 +4795,12 @@ class QuestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Model
                     actor=operator,
                     target=question,
                     title=f"你的问题已通过审核：{question.title}",
-                    content="问题现在已对外展示。",
+                    content=build_review_notification_content(
+                        action="approve",
+                        review_note=review_note,
+                        approved_fallback="问题现在已对外展示。",
+                        rejected_fallback="",
+                    ),
                     link="/questions",
                 )
             return True, status.HTTP_200_OK, None
@@ -4824,7 +4845,12 @@ class QuestionViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.Model
                     actor=operator,
                     target=question,
                     title=f"你的问题未通过审核：{question.title}",
-                    content="请修改后重新提交。",
+                    content=build_review_notification_content(
+                        action="reject",
+                        review_note=review_note,
+                        approved_fallback="",
+                        rejected_fallback="请根据管理员批注修改后重新提交。",
+                    ),
                     link="/profile",
                     level=UserNotification.Level.WARNING,
                 )
@@ -5212,7 +5238,7 @@ class AnswerViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelVi
 
     def _apply_answer_moderation(self, answer, operator, action, review_note=""):
         action = (action or "").strip().lower()
-        review_note = "" if review_note is None else str(review_note)
+        review_note = normalize_review_note(review_note)
         if not is_manager(operator):
             return False, status.HTTP_403_FORBIDDEN, "Only admins can moderate answers."
 
@@ -5248,7 +5274,12 @@ class AnswerViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelVi
                     actor=operator,
                     target=answer,
                     title=f"你的回答已通过审核：{answer.question.title}",
-                    content="回答现在已对外展示。",
+                    content=build_review_notification_content(
+                        action="approve",
+                        review_note=review_note,
+                        approved_fallback="回答现在已对外展示。",
+                        rejected_fallback="",
+                    ),
                     link="/questions",
                 )
             return True, status.HTTP_200_OK, None
@@ -5287,7 +5318,12 @@ class AnswerViewSet(ReviewNoteActionMixin, ActionThrottleMixin, viewsets.ModelVi
                     actor=operator,
                     target=answer,
                     title=f"你的回答未通过审核：{answer.question.title}",
-                    content="请修改后重新提交。",
+                    content=build_review_notification_content(
+                        action="reject",
+                        review_note=review_note,
+                        approved_fallback="",
+                        rejected_fallback="请根据管理员批注修改后重新提交。",
+                    ),
                     link="/profile",
                     level=UserNotification.Level.WARNING,
                 )
@@ -5750,6 +5786,152 @@ class ExtensionPageViewSet(viewsets.ModelViewSet):
             {"action": "delete_page"},
         )
         return super().destroy(request, *args, **kwargs)
+
+
+class DocumentPageSectionViewSet(viewsets.ModelViewSet):
+    serializer_class = DocumentPageSectionSerializer
+    queryset = DocumentPageSection.objects.select_related("page").all()
+
+    def get_permissions(self):
+        if self.action in {"list", "retrieve"}:
+            return [AllowAny()]
+        return [AdminOrSuperAdmin()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        include_hidden = self.request.query_params.get("include_hidden") == "1"
+
+        can_access_hidden = can_access_non_public_items(
+            user=self.request.user,
+            action=getattr(self, "action", ""),
+            explicit_include=include_hidden,
+            permission_check=is_manager,
+        )
+        if not can_access_hidden:
+            queryset = queryset.filter(is_visible=True, page__is_enabled=True)
+            user = self.request.user
+            if not is_manager(user):
+                if user.is_authenticated:
+                    queryset = queryset.exclude(
+                        page__access_level=ExtensionPage.AccessLevel.ADMIN
+                    )
+                else:
+                    queryset = queryset.filter(
+                        page__access_level=ExtensionPage.AccessLevel.PUBLIC
+                    )
+
+        return queryset.order_by("display_order", "id")
+
+    def list(self, request, *args, **kwargs):
+        try:
+            return super().list(request, *args, **kwargs)
+        except DatabaseError as exc:
+            return schema_outdated_response(exc)
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            return super().retrieve(request, *args, **kwargs)
+        except DatabaseError as exc:
+            return schema_outdated_response(exc)
+
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            save_kwargs = {}
+            if request.data.get("display_order", None) in {"", None}:
+                save_kwargs["display_order"] = get_next_order_value(
+                    DocumentPageSection.objects.all(),
+                    "display_order",
+                )
+            section = serializer.save(**save_kwargs)
+            log_event(
+                request.user,
+                ContributionEvent.EventType.ADMIN,
+                section,
+                {"action": "create_document_page_section"},
+            )
+            return Response(
+                self.get_serializer(section).data, status=status.HTTP_201_CREATED
+            )
+        except DatabaseError as exc:
+            return schema_outdated_response(exc)
+
+    def update(self, request, *args, **kwargs):
+        try:
+            partial = kwargs.pop("partial", False)
+            section = self.get_object()
+            serializer = self.get_serializer(
+                section, data=request.data, partial=partial
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            log_event(
+                request.user,
+                ContributionEvent.EventType.ADMIN,
+                section,
+                {"action": "update_document_page_section"},
+            )
+            return Response(serializer.data)
+        except DatabaseError as exc:
+            return schema_outdated_response(exc)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            section = self.get_object()
+            related_page = section.page
+            log_event(
+                request.user,
+                ContributionEvent.EventType.ADMIN,
+                section,
+                {"action": "delete_document_page_section"},
+            )
+            response = super().destroy(request, *args, **kwargs)
+            if (
+                related_page
+                and not DocumentPageSection.objects.filter(page=related_page).exists()
+                and not CompetitionZoneSection.objects.filter(page=related_page).exists()
+            ):
+                related_page.delete()
+            return response
+        except DatabaseError as exc:
+            return schema_outdated_response(exc)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[AdminOrSuperAdmin],
+        url_path="move",
+    )
+    def move(self, request, pk=None):
+        section = self.get_object()
+        direction = parse_move_direction(request)
+        if not direction:
+            return Response(
+                {"detail": "direction must be up or down."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        moved = move_ordered_instance(
+            instance=section,
+            queryset=DocumentPageSection.objects.all(),
+            order_field="display_order",
+            direction=direction,
+        )
+        if not moved:
+            return Response(
+                {"detail": "Section is already at the edge."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        section.refresh_from_db()
+        log_event(
+            request.user,
+            ContributionEvent.EventType.ADMIN,
+            section,
+            {"action": f"move_document_page_section_{direction}"},
+        )
+        return Response(self.get_serializer(section).data)
 
 
 class CompetitionZoneSectionViewSet(viewsets.ModelViewSet):

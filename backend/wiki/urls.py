@@ -19,6 +19,7 @@ from .views import (
     CompetitionZoneSectionViewSet,
     ContributionEventViewSet,
     ChangePasswordCodeView,
+    DocumentPageSectionViewSet,
     EmailChangeCodeView,
     EmailChangeView,
     ExtensionPageViewSet,
@@ -68,6 +69,11 @@ router.register(r"questions", QuestionViewSet, basename="question")
 router.register(r"answers", AnswerViewSet, basename="answer")
 router.register(r"announcements", AnnouncementViewSet, basename="announcement")
 router.register(r"pages", ExtensionPageViewSet, basename="page")
+router.register(
+    r"document-page-sections",
+    DocumentPageSectionViewSet,
+    basename="document-page-section",
+)
 router.register(r"users", UserManagementViewSet, basename="user-management")
 router.register(r"notifications", UserNotificationViewSet, basename="notification")
 router.register(r"security-logs", SecurityAuditLogViewSet, basename="security-log")

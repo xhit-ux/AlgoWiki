@@ -109,7 +109,7 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 };
 
 const markdownSanitizeConfig = {
-  USE_PROFILES: { html: true, mathMl: true },
+  USE_PROFILES: { html: true, mathMl: true, svg: true },
   ADD_ATTR: ["style", "target", "rel"],
   FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "textarea", "select", "option"],
 };

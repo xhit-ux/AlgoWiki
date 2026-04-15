@@ -18,6 +18,7 @@ from .models import (
     CompetitionScheduleEntry,
     CompetitionZoneSection,
     ContributionEvent,
+    DocumentPageSection,
     EmailVerificationTicket,
     ExtensionPage,
     FriendlyLink,
@@ -30,6 +31,7 @@ from .models import (
     SecurityAuditLog,
     TeamMember,
     TrickEntry,
+    TrickEntryLike,
     UserNotification,
     User,
 )
@@ -130,6 +132,12 @@ class TrickEntryAdmin(admin.ModelAdmin):
     list_display = ("id", "title", "author", "status", "updated_at")
     list_filter = ("status",)
     search_fields = ("title", "content_md", "author__username")
+
+
+@admin.register(TrickEntryLike)
+class TrickEntryLikeAdmin(admin.ModelAdmin):
+    list_display = ("id", "trick_entry", "user", "created_at")
+    search_fields = ("trick_entry__title", "user__username")
 
 
 @admin.register(TeamMember)
@@ -316,6 +324,21 @@ class CompetitionZoneSectionAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("target_type", "builtin_view", "is_visible")
+    search_fields = ("title", "key", "page__title", "page__slug")
+
+
+@admin.register(DocumentPageSection)
+class DocumentPageSectionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "title",
+        "key",
+        "page",
+        "display_order",
+        "is_visible",
+        "updated_at",
+    )
+    list_filter = ("is_visible",)
     search_fields = ("title", "key", "page__title", "page__slug")
 
 
