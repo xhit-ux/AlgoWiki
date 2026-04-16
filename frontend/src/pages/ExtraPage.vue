@@ -308,66 +308,71 @@
             </header>
 
             <div class="trick-modal-body">
-              <h3
-                class="trick-modal-title"
-                v-html="renderInlineMarkdown(selectedTrick.title || '未命名 trick')"
-              ></h3>
+              <section class="trick-modal-overview">
+                <h3
+                  class="trick-modal-title"
+                  v-html="renderInlineMarkdown(selectedTrick.title || '未命名 trick')"
+                ></h3>
 
-              <div class="trick-modal-meta">
-                <span>发布者：{{ selectedTrick.author?.username || "-" }}</span>
-                <span>发布时间：{{ formatTime(selectedTrick.created_at) }}</span>
-                <span>点赞：{{ selectedTrick.like_count || 0 }}</span>
-              </div>
+                <div class="trick-modal-meta">
+                  <span>发布者：{{ selectedTrick.author?.username || "-" }}</span>
+                  <span>发布时间：{{ formatTime(selectedTrick.created_at) }}</span>
+                  <span>点赞：{{ selectedTrick.like_count || 0 }}</span>
+                </div>
 
-              <div class="trick-card-keywords" v-if="selectedTrick.keywords?.length">
-                <span
-                  v-for="keyword in selectedTrick.keywords"
-                  :key="`modal-keyword-${selectedTrick.id}-${keyword}`"
-                  class="trick-keyword-chip"
+                <div
+                  class="trick-card-keywords trick-modal-keywords"
+                  v-if="selectedTrick.keywords?.length"
                 >
-                  {{ keyword }}
-                </span>
-              </div>
+                  <span
+                    v-for="keyword in selectedTrick.keywords"
+                    :key="`modal-keyword-${selectedTrick.id}-${keyword}`"
+                    class="trick-keyword-chip"
+                  >
+                    {{ keyword }}
+                  </span>
+                </div>
 
-              <div
-                class="trick-action-row trick-modal-manage"
-                v-if="
-                  canEditTrick(selectedTrick) ||
-                  canDeleteTrick(selectedTrick) ||
-                  canModerateTrick(selectedTrick)
-                "
-              >
-                <button
-                  class="btn btn-mini"
-                  v-if="canEditTrick(selectedTrick)"
-                  @click.stop="startEditTrick(selectedTrick)"
+                <div
+                  class="trick-action-row trick-modal-manage"
+                  v-if="
+                    canEditTrick(selectedTrick) ||
+                    canDeleteTrick(selectedTrick) ||
+                    canModerateTrick(selectedTrick)
+                  "
                 >
-                  {{
-                    editingTrickId === selectedTrick.id ? "取消编辑" : "编辑"
-                  }}
-                </button>
-                <button
-                  class="btn btn-mini"
-                  v-if="canDeleteTrick(selectedTrick)"
-                  @click.stop="deleteTrick(selectedTrick)"
-                >
-                  删除
-                </button>
-                <button
-                  class="btn btn-mini"
-                  v-if="canModerateTrick(selectedTrick)"
-                  @click.stop="setTrickStatus(selectedTrick, 'approved')"
-                >
-                  通过
-                </button>
-                <button
-                  class="btn btn-mini"
-                  v-if="canModerateTrick(selectedTrick)"
-                  @click.stop="setTrickStatus(selectedTrick, 'rejected')"
-                >
-                  拒绝
-                </button>
-              </div>
+                  <button
+                    class="btn btn-mini"
+                    v-if="canEditTrick(selectedTrick)"
+                    @click.stop="startEditTrick(selectedTrick)"
+                  >
+                    {{
+                      editingTrickId === selectedTrick.id ? "取消编辑" : "编辑"
+                    }}
+                  </button>
+                  <button
+                    class="btn btn-mini"
+                    v-if="canDeleteTrick(selectedTrick)"
+                    @click.stop="deleteTrick(selectedTrick)"
+                  >
+                    删除
+                  </button>
+                  <button
+                    class="btn btn-mini"
+                    v-if="canModerateTrick(selectedTrick)"
+                    @click.stop="setTrickStatus(selectedTrick, 'approved')"
+                  >
+                    通过
+                  </button>
+                  <button
+                    class="btn btn-mini"
+                    v-if="canModerateTrick(selectedTrick)"
+                    @click.stop="setTrickStatus(selectedTrick, 'rejected')"
+                  >
+                    拒绝
+                  </button>
+                </div>
+              </section>
 
               <div
                 v-if="editingTrickId === selectedTrick.id"
@@ -1833,6 +1838,7 @@ onMounted(async () => {
   color: #475569;
   background: rgba(148, 163, 184, 0.16);
   border: 1px solid rgba(148, 163, 184, 0.18);
+  word-break: break-word;
 }
 
 .trick-keyword-chip--muted {
@@ -1959,10 +1965,16 @@ onMounted(async () => {
   flex: 1 1 auto;
   padding: 18px 26px 14px;
   display: grid;
-  gap: 12px;
+  gap: 18px;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.trick-modal-overview {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
 
 .trick-modal-title {
@@ -1988,13 +2000,19 @@ onMounted(async () => {
   font-size: 14px;
 }
 
-.trick-modal-body > .trick-card-keywords {
+.trick-modal-keywords {
   min-height: 0;
   gap: 6px;
+  padding: 2px 0 0;
 }
 
 .trick-modal-manage {
   margin: 0;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--hairline) 84%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 84%, transparent);
+  align-items: flex-start;
 }
 
 .trick-detail-markdown {
